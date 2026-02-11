@@ -25,5 +25,6 @@ fn main() {
     }
     let src = read_src(&args[1]);
     let tokens = tokenize::tokenize(&src);
-    tokenize::print_tokens(tokens);
+    tokenize::print_tokens(&tokens);
+    ast::ast_create(tokens);
 }

@@ -1,7 +1,7 @@
 use crate::const_assert;
 
 const TOKEN_TYPE_COUNT: i32 = 39;
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub enum TokenType {
     Unknown,
     Plus,
@@ -44,11 +44,22 @@ pub enum TokenType {
     Number,
 }
 
+#[derive(Clone)]
 pub struct Token {
     pub x: i32,
     pub y: i32,
     pub tok: String,
     pub tt: TokenType,
+}
+
+pub fn is_operator(tt: &TokenType) -> bool {
+    match tt {
+        TokenType::Plus  => true,
+        TokenType::Sub   => true,
+        TokenType::Star  => true,
+        TokenType::Slash => true,
+        _ => false
+    }
 }
 
 fn is_whitespace(c: char) -> bool {
@@ -284,7 +295,7 @@ pub fn tokenize(src: &str) -> Vec<Token> {
     return ret;
 }
 
-pub fn print_tokens(tokens: Vec<Token>) {
+pub fn print_tokens(tokens: &Vec<Token>) {
     for token in tokens {
         println!("Token: {}[{:?}]({}:{})",token.tok, token.tt, token.x, token.y);
     }

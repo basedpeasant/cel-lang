@@ -4,6 +4,8 @@ import core.ops;
 
 HEIGHT u32 :: 800;
 WIDTH  u32 :: 600;
+a i32(static) :: 3;
+b i32(static) :: 6;
 
 Array<T any> type :: struct {
     items []T;
@@ -41,6 +43,7 @@ main proc :: () {
         println("Usage: program FILENAME");
         exit(0);
     }
+	test i32(immutable) := a + b;
     filename string := args[1];
     src string := read_to_string(filename);
 
