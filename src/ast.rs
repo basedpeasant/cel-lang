@@ -19,6 +19,17 @@ enum Operation {
     Div,
 }
 
+enum Type {
+    U8,
+    U16,
+    U32,
+    U64,
+    I8,
+    I16,
+    I32,
+    I64
+}
+
 struct BinaryOpNode {
     lhs: Box<Expression>,
     rhs: Box<Expression>,
@@ -28,6 +39,7 @@ struct BinaryOpNode {
 struct VariableDeclNode {
     symbol: Token,
     rhs: Option<Expression>,
+    type_: Type
 }
 
 enum Expression {
@@ -47,7 +59,8 @@ enum ExpressionStatement {
 
 enum DeclNode {
     //TODO:
-    Proc(ProcNode)
+    Proc(ProcNode),
+    Var(VariableDeclNode)
 }
 
 enum Statement {
@@ -170,10 +183,38 @@ fn print_expression_statement(expr_stmt: &ExpressionStatement, level: usize) {
     }
 }
 
+fn type_to_string(type_: &Type) -> &'static str {
+    match type_ {
+        Type::U8 => "U8",
+        Type::U16 => "U16",
+        Type::U32 => "U32",
+        Type::U64 => "U64",
+        Type::I8 => "i8",
+        Type::I16 => "i16",
+        Type::I32 => "i32",
+        Type::I64 => "i64",
+    }
+}
+
+fn print_variable_decl(var_decl: &VariableDeclNode, level: usize) {
+    println!("{}Variable Declaration:", indent(level));
+    println!("{}  name: \"{}\"", indent(level), var_decl.symbol.tok);
+    println!("{}  type: {}", indent(level), type_to_string(&var_decl.type_));
+    if let Some(ref rhs) = var_decl.rhs {
+        println!("{}  initializer:", indent(level));
+        print_expression(rhs, level + 2);
+    } else {
+        println!("{}  initializer: (none)", indent(level));
+    }
+}
+
 fn print_declaration(decl: &DeclNode, level: usize) {
     match decl {
         DeclNode::Proc(proc_node) => {
             print_proc(proc_node, level);
+        }
+        DeclNode::Var(variable_decl) => {
+            print_variable_decl(variable_decl, level);
         }
     }
 }
@@ -209,7 +250,7 @@ fn print_expression_root(expr: &Expression) {
     println!("==================");
 }
 
-fn ast_parse_primary(ast: &mut Ast, scope: usize) -> Expression {
+fn parse_primary(ast: &mut Ast, scope: usize) -> Expression {
     let current_token = ast.get_current_token().unwrap();
     match current_token.tt {
         TokenType::Number => {
@@ -219,7 +260,7 @@ fn ast_parse_primary(ast: &mut Ast, scope: usize) -> Expression {
             ast.advance();
             return ret;
         },
-        _ => panic!("(Parse Primary) Unexpected Token")
+        _ => panic!("(Parse Primary) Unexpected Token \"{}\"", current_token.tok)
     }
 }
 
@@ -247,7 +288,7 @@ fn ast_create_binary(op: Operation, lhs: Expression, rhs: Expression) -> BinaryO
 }
 
 fn create_expr_with_prec(ast: &mut Ast, min_prec: i32, scope: usize) -> Expression {
-    let mut lhs = ast_parse_primary(ast, scope);
+    let mut lhs = parse_primary(ast, scope);
     loop {
         let op_token = ast.get_current_token();
         if op_token.is_none() {
@@ -274,6 +315,43 @@ fn create_expr_with_prec(ast: &mut Ast, min_prec: i32, scope: usize) -> Expressi
 
 fn create_expr(ast: &mut Ast, scope: usize) -> Expression {
     return create_expr_with_prec(ast, 0, scope);
+}
+
+fn get_type(token: &Token) -> Type {
+    match token.tok.as_str() {
+        "U8"  => Type::U8,
+        "U16" => Type::U16,
+        "U32" => Type::U32,
+        "U64" => Type::U64,
+        "i8"  => Type::I8,
+        "i16" => Type::I16,
+        "i32" => Type::I32,
+        "i64" => Type::I64,
+        _     => panic!("Unrecognized type: \"{}\"", token.tok)
+    }
+}
+
+fn create_variable_declaration(ast: &mut Ast, scope: usize) -> VariableDeclNode {
+    let name = ast.get_current_token().unwrap().clone();
+    ast.advance();
+    let type_token = ast.get_current_token().unwrap().clone();
+    let peek = ast.get_peek().unwrap();
+    if peek.tt == TokenType::SemiColon { // Declaration without rhs
+        
+    } else if peek.tt == TokenType::ShortAssign { // Declaration with rhs
+        ast.advance();
+    } else {
+        panic!("Unexpected token \"{:?}\"", ast.get_current_token().unwrap().tok);
+    }
+    ast.advance();
+
+    let rhs = create_expr(ast, scope);
+    
+    VariableDeclNode {
+        symbol: name.clone(),
+        rhs: Some(rhs),
+        type_: get_type(&type_token),
+    }
 }
 
 fn create_proc(ast: &mut Ast, parent_scope: usize) -> ProcNode {
@@ -331,6 +409,11 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                         assert!(root, "inner functions are not supported currently");
                         let proc = create_proc(ast, ast.scopes[block.scope].id);
                         block.statements.push(Statement::Declaration(DeclNode::Proc(proc)));
+                    } else if peek.tt == TokenType::Word || peek.tt == TokenType::ShortAssign {
+                        // variable declaration
+                        // TODO: shortassign
+                        let variable_decl = create_variable_declaration(ast, block.scope);
+                        block.statements.push(Statement::Declaration(DeclNode::Var(variable_decl)));
                     } else {
                         todo!("handle errors");
                     }
