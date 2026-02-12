@@ -1,7 +1,7 @@
 use crate::const_assert;
 
 const TOKEN_TYPE_COUNT: i32 = 39;
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum TokenType {
     Unknown,
     Plus,
