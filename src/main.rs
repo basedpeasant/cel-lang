@@ -3,6 +3,7 @@ use std::fs;
 mod util;
 mod tokenize;
 mod ast;
+mod codegen;
 
 const PROGRAM_NAME: &str = "cel";
 
@@ -24,7 +25,8 @@ fn main() {
         std::process::exit(0);
     }
     let src = read_src(&args[1]);
-    let tokens = tokenize::tokenize(&src);
+    let tokens = tokenize::tokenize_start(&src);
     tokenize::print_tokens(&tokens);
-    ast::ast_create(tokens);
+    let ast = ast::ast_start(tokens);
+    codegen::codegen_start(&ast);
 }

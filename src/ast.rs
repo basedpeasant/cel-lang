@@ -1,25 +1,24 @@
 
-use std::rc::Rc;
-
 use crate::tokenize::{is_operator, Token, TokenType};
 
-struct NumberNode {
-    val: i64,
+pub struct NumberNode {
+    pub val: i64,
 }
 
-struct VariableNode {
-    symbol: Token,
+pub struct VariableNode {
+    pub symbol: Token,
 }
 
 #[derive(Copy, Clone)]
-enum Operation {
+pub enum Operation {
     Add,
     Sub,
     Mul,
     Div,
 }
 
-enum Type {
+#[derive(Copy, Clone)]
+pub enum Type {
     U8,
     U16,
     U32,
@@ -30,64 +29,65 @@ enum Type {
     I64
 }
 
-struct BinaryOpNode {
-    lhs: Box<Expression>,
-    rhs: Box<Expression>,
-    op: Operation
+pub struct BinaryOpNode {
+    pub lhs: Box<Expression>,
+    pub rhs: Box<Expression>,
+    pub op: Operation
 }
 
-struct VariableDeclNode {
-    symbol: Token,
-    rhs: Option<Expression>,
-    type_: Type
+pub struct VariableDeclNode {
+    pub symbol: Token,
+    pub rhs: Option<Expression>,
+    pub type_: Type
 }
 
-enum Expression {
+pub enum Expression {
     Binary(BinaryOpNode),
     Number(NumberNode),
     Variable(VariableNode),
 }
 
-enum ExpressionStatementWithBlock {
+pub enum ExpressionStatementWithBlock {
     //TODO:
 }
 
-enum ExpressionStatement {
+pub enum ExpressionStatement {
     Expression(Expression),
     ExpressionWithBlock(ExpressionStatementWithBlock),
 }
 
-enum DeclNode {
+pub enum DeclNode {
     //TODO:
     Proc(ProcNode),
     Var(VariableDeclNode)
 }
 
-enum Statement {
+pub enum Statement {
     ExpressionStatement(ExpressionStatement),
     Declaration(DeclNode)
 }
 
-struct Scope {
-    parent_scope: Option<usize>,
-    id: usize
+#[derive(Clone)]
+pub struct Scope {
+    pub parent_scope: Option<usize>,
+    pub id: usize
 }
 
-struct ProcNode {
-    name: Token,
-    block: BlockNode,
+pub struct ProcNode {
+    pub name: Token,
+    pub block: BlockNode,
 }
 
-struct BlockNode {
-    statements: Vec<Statement>,
-    scope: usize,
+pub struct BlockNode {
+    pub statements: Vec<Statement>,
+    pub scope: usize,
 }
 
 pub struct Ast {
-    root_block: Option<BlockNode>,
+    pub root_block: Option<BlockNode>,
     tokens: Vec<Token>,
     index: usize,
-    scopes: Vec<Scope>
+    pub scopes: Vec<Scope>
 }
 
 impl Ast {
@@ -260,6 +260,11 @@ fn parse_primary(ast: &mut Ast, scope: usize) -> Expression {
             ast.advance();
             return ret;
         },
+        TokenType::Word => {
+            let ret = Expression::Variable(VariableNode { symbol: current_token.clone() });
+            ast.advance();
+            return ret;
+        }
         _ => panic!("(Parse Primary) Unexpected Token \"{}\"", current_token.tok)
     }
 }
@@ -345,11 +350,17 @@ fn create_variable_declaration(ast: &mut Ast, scope: usize) -> VariableDeclNode 
     }
     ast.advance();
 
-    let rhs = create_expr(ast, scope);
+    let rhs: Option<Expression>;
+
+    if ast.get_current_token().unwrap().tt == TokenType::SemiColon {
+        rhs = None;
+    } else {
+        rhs = Some(create_expr(ast, scope));
+    }
     
     VariableDeclNode {
         symbol: name.clone(),
-        rhs: Some(rhs),
+        rhs,
         type_: get_type(&type_token),
     }
 }
@@ -442,7 +453,7 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
     return block;
 }
 
-pub fn ast_create(tokens: Vec<Token>) -> Ast {
+pub fn ast_start(tokens: Vec<Token>) -> Ast {
     let mut ast = Ast {
         root_block: None,
         tokens,

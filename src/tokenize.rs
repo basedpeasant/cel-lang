@@ -233,7 +233,7 @@ fn create_token(x: i32, y: i32, tok: String) -> Token {
     }
 }
 
-pub fn tokenize(src: &str) -> Vec<Token> {
+pub fn tokenize_start(src: &str) -> Vec<Token> {
     let (mut x, mut y) = (1, 1);
     let mut ret = Vec::<Token>::new();
     let mut iterator = src.chars().enumerate().peekable();
