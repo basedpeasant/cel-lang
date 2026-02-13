@@ -76,6 +76,7 @@ pub struct Scope {
 pub struct ProcNode {
     pub name: Token,
     pub block: BlockNode,
+    pub return_type: Option<Type>
 }
 
 pub struct BlockNode {
@@ -376,17 +377,19 @@ fn create_proc(ast: &mut Ast, parent_scope: usize) -> ProcNode {
         // TODO: handle the arguments here
     ast.advance();
     ast.match_token(TokenType::CloseParen);
+        // TODO: handle the return type here
     ast.advance();
     ast.match_token(TokenType::OpenCurly);
     ast.advance(); // {
         // TODO: handle body here
     let proc_block = create_block(ast, false, Some(parent_scope));
     ast.match_token(TokenType::CloseCurly);
-    ast.advance(); // }
+    // ast.advance(); // }
 
     ProcNode {
         name: name,
-        block: proc_block    
+        block: proc_block,
+        return_type: None    
     }
 }
 
@@ -433,6 +436,8 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                     // expression statement
                     let expr = create_expr(ast, ast.scopes[block.scope].id);
                     block.statements.push(Statement::ExpressionStatement(ExpressionStatement::Expression(expr)));
+                } else {
+                    unreachable!();
                 }
             },
             TokenType::CloseCurly => {
@@ -442,7 +447,7 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                     break;
                 }
             }
-            _ => todo!("Unexpected Token \"{:?}\"", current_token.tt),
+            _ => todo!("Unexpected Token \"{:?}\":{}", current_token.tt, ast.index),
         }
 
         ast.advance();

@@ -51,6 +51,30 @@ fn get_c_type(type_: Type) -> String {
     }
 }
 
+impl Codegen for Expression {
+    fn walk(&self, g: &mut Generator) {
+        // TODO: implement constant folding
+        match self {
+            Expression::Binary(bin) => {
+                bin.lhs.walk(g);
+                let _ = match bin.op {
+                    Operation::Add => g.file.write(b" + ").unwrap(),
+                    Operation::Div => g.file.write(b" / ").unwrap(),
+                    Operation::Sub => g.file.write(b" - ").unwrap(),
+                    Operation::Mul => g.file.write(b" * ").unwrap(),
+                };
+                bin.rhs.walk(g);
+            },
+            Expression::Number(num) => {
+                g.file.write(num.val.to_string().as_bytes()).unwrap();
+            },
+            Expression::Variable(var) => {
+                g.file.write(var.symbol.tok.as_bytes()).unwrap();
+            },
+        } 
+    }
+}
+
 impl Codegen for VariableDeclNode {
     fn walk(&self, g: &mut Generator) {
         g.file.write(b"\t").unwrap();
@@ -58,7 +82,8 @@ impl Codegen for VariableDeclNode {
         g.file.write(b" ").unwrap();
         g.file.write(self.symbol.tok.as_bytes()).unwrap();
         if self.rhs.is_some() {
-            todo!("handle rhs");
+            g.file.write(b" = ").unwrap();
+            self.rhs.as_ref().unwrap().walk(g);
         }
         g.file.write(b";\n").unwrap();
     }
@@ -98,7 +123,7 @@ fn write_start(g: &mut Generator) {
     g.file.write(b"\t\t\"syscall\\n\"\n").unwrap();
     g.file.write(b"\t\t:\n").unwrap();
     g.file.write(b"\t\t: \"r\"(code)\n").unwrap();
-    g.file.write(b"\t\t:\"%rax\", \"%rdi\", \"%rcx\", \"%r11\"\n").unwrap();
+    g.file.write(b"\t\t:\"rax\", \"rdi\", \"rcx\", \"r11\"\n").unwrap();
     g.file.write(b"\t);\n").unwrap();
     g.file.write(b"}\n").unwrap();
     g.file.write(b"\n").unwrap();
