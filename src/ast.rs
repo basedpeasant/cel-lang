@@ -41,10 +41,21 @@ pub struct VariableDeclNode {
     pub type_: Type
 }
 
+pub struct CallNode {
+    pub name: Token,
+    pub args: Vec<Expression>
+}
+
+pub struct StringLiteral {
+    pub str: String
+}
+
 pub enum Expression {
     Binary(BinaryOpNode),
     Number(NumberNode),
     Variable(VariableNode),
+    Call(CallNode),
+    String(StringLiteral)
 }
 
 pub enum ExpressionStatementWithBlock {
@@ -52,6 +63,7 @@ pub enum ExpressionStatementWithBlock {
 }
 
 pub enum ExpressionStatement {
+    Return(ReturnNode),
     Expression(Expression),
     ExpressionWithBlock(ExpressionStatementWithBlock),
 }
@@ -73,9 +85,14 @@ pub struct Scope {
     pub id: usize
 }
 
+pub struct ReturnNode {
+    pub expr: Expression
+}
+
 pub struct ProcNode {
     pub name: Token,
     pub block: BlockNode,
+    pub args: Vec<VariableDeclNode>,
     pub return_type: Option<Type>
 }
 
@@ -181,6 +198,10 @@ fn print_expression_statement(expr_stmt: &ExpressionStatement, level: usize) {
             println!("{}ExpressionStatement (with block):", indent(level));
             println!("{}  (TODO: implement)", indent(level));
         }
+        ExpressionStatement::Return(ret) => {
+            println!("{}Return:", indent(level));
+            print_expression(&ret.expr, level + 1);
+        }
     }
 }
 
@@ -242,6 +263,12 @@ fn print_expression(expr: &Expression, level: usize) {
             println!("{}  rhs:", indent(level));
             print_expression(&bin.rhs, level + 2);
         }
+        Expression::Call(call) => {
+            println!("{}Call: {}", indent(level), call.name.tok);
+        },
+        Expression::String(str) => {
+            println!("{}String: {}", indent(level), str.str);
+        }
     }
 }
 
@@ -262,7 +289,34 @@ fn parse_primary(ast: &mut Ast, scope: usize) -> Expression {
             return ret;
         },
         TokenType::Word => {
-            let ret = Expression::Variable(VariableNode { symbol: current_token.clone() });
+            let peek = ast.get_peek().unwrap();
+            if peek.tt == TokenType::OpenParen {
+                let name = current_token.clone();
+                ast.advance();
+                ast.advance();
+                // handle args TODO:
+                let mut args = Vec::<Expression>::new();
+                loop {
+                    args.push(create_expr(ast, scope));
+                    let current_token = ast.get_current_token().unwrap().clone();
+                    if current_token.tt == TokenType::CloseParen {
+                        break;
+                    } else if current_token.tt == TokenType::Comma {
+                        ast.advance();
+                    }
+                }
+                // ast.match_token(TokenType::CloseParen);
+                let ret = Expression::Call(CallNode { name: name, args });
+                ast.advance();
+                return ret;
+            } else {
+                let ret = Expression::Variable(VariableNode { symbol: current_token.clone() });
+                ast.advance();
+                return ret;
+            }
+        },
+        TokenType::DoubleQuote => {
+            let ret = Expression::String(StringLiteral { str: current_token.tok.clone() });
             ast.advance();
             return ret;
         }
@@ -284,7 +338,8 @@ fn get_prec(op: TokenType) -> i32 {
     match op {
         TokenType::Star | TokenType::Slash => 5,
         TokenType::Plus | TokenType::Sub => 4,
-        TokenType::SemiColon => -1,
+        TokenType::SemiColon | TokenType::Comma
+        | TokenType::CloseParen => -1,
         _ => panic!("Unknown Operator {:?}", op),
     }
 }
@@ -374,11 +429,35 @@ fn create_proc(ast: &mut Ast, parent_scope: usize) -> ProcNode {
     ast.match_token(TokenType::DoubleColon);
     ast.advance();
     ast.match_token(TokenType::OpenParen);
-        // TODO: handle the arguments here
+    // TODO: handle the arguments here
     ast.advance();
+    let mut args = Vec::<VariableDeclNode>::new();
+    loop {
+        let mut current_token = ast.get_current_token().unwrap().clone();
+        if current_token.tt == TokenType::CloseParen {
+            break;
+        } else if current_token.tt == TokenType::Comma {
+            ast.advance();
+            current_token = ast.get_current_token().unwrap().clone();
+        }
+        let symbol = current_token;
+        ast.advance();
+        let r#type = ast.get_current_token().unwrap();
+        args.push(VariableDeclNode {
+            symbol: symbol.clone(),
+            rhs: None,
+            type_: get_type(r#type),
+        });
+        ast.advance();
+    }
     ast.match_token(TokenType::CloseParen);
-        // TODO: handle the return type here
     ast.advance();
+    let mut return_type: Option<Type> = None;
+    if ast.get_current_token().unwrap().tt == TokenType::Arrow {
+        ast.advance();
+        return_type = Some(get_type(ast.get_current_token().unwrap()));
+        ast.advance();
+    }
     ast.match_token(TokenType::OpenCurly);
     ast.advance(); // {
         // TODO: handle body here
@@ -389,7 +468,8 @@ fn create_proc(ast: &mut Ast, parent_scope: usize) -> ProcNode {
     ProcNode {
         name: name,
         block: proc_block,
-        return_type: None    
+        args,
+        return_type    
     }
 }
 
@@ -416,8 +496,9 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                 if peek.tt == TokenType::Word ||
                    peek.tt == TokenType::ShortAssign ||
                    peek.tt == TokenType::DoubleColon ||
-                   peek.tt == TokenType::Proc
-               {
+                   peek.tt == TokenType::Proc ||
+                   peek.tt == TokenType::OpenParen
+                {
                     // declaration
                     if peek.tt == TokenType::Proc {
                         assert!(root, "inner functions are not supported currently");
@@ -428,6 +509,9 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                         // TODO: shortassign
                         let variable_decl = create_variable_declaration(ast, block.scope);
                         block.statements.push(Statement::Declaration(DeclNode::Var(variable_decl)));
+                    } else if peek.tt == TokenType::OpenParen {
+                        let expr = create_expr(ast, ast.scopes[block.scope].id);
+                        block.statements.push(Statement::ExpressionStatement(ExpressionStatement::Expression(expr)));
                     } else {
                         todo!("handle errors");
                     }
@@ -446,6 +530,12 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                 } else {
                     break;
                 }
+            },
+            TokenType::Return => {
+                ast.advance();
+                let expr = create_expr(ast, ast.scopes[block.scope].id);
+                block.statements.push(Statement::ExpressionStatement(ExpressionStatement::Return(ReturnNode { expr })));
+                
             }
             _ => todo!("Unexpected Token \"{:?}\":{}", current_token.tt, ast.index),
         }

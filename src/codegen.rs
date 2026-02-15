@@ -28,17 +28,31 @@ impl Codegen for ProcNode {
         if self.name.tok == "main" {
             g.file.write(b"void _cel_main()\n").unwrap();
         } else {
+            if self.return_type.is_none() {
+                g.file.write(b"void ").unwrap();
+            } else {
+                g.file.write(get_c_type(self.return_type.unwrap()).as_bytes()).unwrap();
+                g.file.write(b" ").unwrap();
+            }
             g.file.write(self.name.tok.as_bytes()).unwrap();
+            g.file.write(b"(").unwrap();
+            for (i, arg) in self.args.iter().enumerate() {
+                arg.walk(g);
+                if i != self.args.len() - 1 {
+                    g.file.write(b", ").unwrap();
+                }
+            }
+            g.file.write(b")").unwrap();
             g.file.write(b"\n").unwrap();
         }
         g.file.write(b"{\n").unwrap();
         self.block.walk(g);
-        g.file.write(b"}\n").unwrap();
+        g.file.write(b"}\n\n").unwrap();
     }
 }
 
-fn get_c_type(type_: Type) -> String {
-    match type_ {
+fn get_c_type(r#type: Type) -> String {
+    match r#type {
         Type::U8 => "unsigned char".to_string(),
         Type::U16 => "unsigned short".to_string(),
         Type::U32 => "unsigned int".to_string(),
@@ -71,13 +85,27 @@ impl Codegen for Expression {
             Expression::Variable(var) => {
                 g.file.write(var.symbol.tok.as_bytes()).unwrap();
             },
+            Expression::Call(call) => {
+                g.file.write(format!("{}(", call.name.tok).as_bytes()).unwrap();
+                if call.args.len() > 0 {
+                    for (i, arg) in call.args.iter().enumerate() {
+                        arg.walk(g);
+                        if i != call.args.len() - 1 {
+                            g.file.write(b", ").unwrap();
+                        }
+                    }
+                }
+                g.file.write(b")").unwrap();
+            },
+            Expression::String(str) => {
+                g.file.write(format!("\"{}\"", str.str).as_bytes()).unwrap();
+            }
         } 
     }
 }
 
 impl Codegen for VariableDeclNode {
     fn walk(&self, g: &mut Generator) {
-        g.file.write(b"\t").unwrap();
         g.file.write(get_c_type(self.type_).as_bytes()).unwrap();
         g.file.write(b" ").unwrap();
         g.file.write(self.symbol.tok.as_bytes()).unwrap();
@@ -85,7 +113,6 @@ impl Codegen for VariableDeclNode {
             g.file.write(b" = ").unwrap();
             self.rhs.as_ref().unwrap().walk(g);
         }
-        g.file.write(b";\n").unwrap();
     }
 }
 
@@ -101,8 +128,33 @@ impl Codegen for DeclNode {
 impl Codegen for BlockNode {
     fn walk(&self, g: &mut Generator) {
         for n in &self.statements {
+            if self.scope != 0 {
+                g.file.write(b"\t").unwrap();
+            }
             match n {
-                Statement::Declaration(decl) => decl.walk(g),
+                Statement::Declaration(decl) => {
+                    decl.walk(g);
+                    match decl {
+                        DeclNode::Proc(_) => {},
+                        DeclNode::Var(_) => {
+                            g.file.write(b";\n").unwrap();
+                        }
+                    }
+                },
+                Statement::ExpressionStatement(expr) => {
+                    match expr {
+                        ExpressionStatement::Expression(expr) => {
+                             expr.walk(g);
+                             g.file.write(b";\n").unwrap();
+                        },
+                        ExpressionStatement::ExpressionWithBlock(expr) => todo!(),
+                        ExpressionStatement::Return(ret) => {
+                             g.file.write(b"return ").unwrap();
+                             ret.expr.walk(g);
+                             g.file.write(b";\n").unwrap();
+                        }
+                    }
+                },
                 _ => todo!("not implemented yet")
             }
             n.walk(g);
@@ -111,28 +163,49 @@ impl Codegen for BlockNode {
 }
 
 fn write_start(g: &mut Generator) {
-    g.file.write(b"void exit(long code);\n").unwrap();
-    g.file.write(b"void _start();\n").unwrap();
-    g.file.write(b"void _cel_main();\n").unwrap();
-    g.file.write(b"\n").unwrap();
-    g.file.write(b"void exit(long code)\n").unwrap();
-    g.file.write(b"{\n").unwrap();
-    g.file.write(b"\t__asm__ (\n").unwrap();
-    g.file.write(b"\t\t\"mov $60, %%rax\\n\"\n").unwrap();
-    g.file.write(b"\t\t\"mov %0, %%rdi\\n\"\n").unwrap();
-    g.file.write(b"\t\t\"syscall\\n\"\n").unwrap();
-    g.file.write(b"\t\t:\n").unwrap();
-    g.file.write(b"\t\t: \"r\"(code)\n").unwrap();
-    g.file.write(b"\t\t:\"rax\", \"rdi\", \"rcx\", \"r11\"\n").unwrap();
-    g.file.write(b"\t);\n").unwrap();
-    g.file.write(b"}\n").unwrap();
-    g.file.write(b"\n").unwrap();
-    g.file.write(b"void _start()\n").unwrap();
-    g.file.write(b"{\n").unwrap();
-    g.file.write(b"\t_cel_main();\n").unwrap();
-    g.file.write(b"\texit(0);\n").unwrap();
-    g.file.write(b"}\n").unwrap();
-    g.file.write(b"\n").unwrap();
+    g.file.write(r#"
+
+void exit(long code);
+void _start();
+void _cel_main();
+int write(int fd, const char* buf, int count);
+
+void exit(long code)
+{
+    __asm__ (
+        "mov $60, %%rax\n"
+        "mov %0, %%rdi\n"
+        "syscall\n"
+        :
+        : "r"(code)
+        : "rax", "rdi", "rcx", "r11"
+    );
+}
+
+int write(int fd, const char* buf, int count)
+{
+    int ret;
+    __asm__ (
+        "mov $1, %%rax\n"
+        "mov %1, %%rdi\n"
+        "mov %2, %%rsi\n"
+        "mov %3, %%rdx\n"
+        "syscall\n"
+        "mov %%eax, %0\n"
+        : "=r"(ret)
+        : "r"((long)fd), "r"(buf), "r"((long)count)
+        : "rax", "rdi", "rsi", "rdx", "rcx", "r11", "memory"
+    );
+    return ret;
+}
+
+void _start()
+{
+    _cel_main();
+    exit(0);
+}
+
+"#.as_bytes()).unwrap();
 }
 
 pub fn codegen_start(ast: &Ast) {

@@ -283,6 +283,14 @@ pub fn tokenize_start(src: &str) -> Vec<Token> {
                 let token = create_token(x, y, tok);
                 ret.push(token);
                 iterator.next();
+            } else if c == '"' {
+                let mut c = iterator.next().unwrap().1;
+                let mut tok = String::new();
+                while c != '"' {
+                    tok.push(c);
+                    c = iterator.next().unwrap().1;
+                }
+                ret.push(Token{x, y, tok, tt: TokenType::DoubleQuote});
             } else {
                 let token = create_token(x, y, c.to_string());
                 ret.push(token);
