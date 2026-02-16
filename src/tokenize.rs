@@ -44,7 +44,7 @@ pub enum TokenType {
     Number,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Token {
     pub x: i32,
     pub y: i32,
@@ -58,6 +58,7 @@ pub fn is_operator(tt: &TokenType) -> bool {
         TokenType::Sub   => true,
         TokenType::Star  => true,
         TokenType::Slash => true,
+        TokenType::Assign => true,
         _ => false
     }
 }

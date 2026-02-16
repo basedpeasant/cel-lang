@@ -1,23 +1,27 @@
 
 use crate::tokenize::{is_operator, Token, TokenType};
 
+#[derive(Debug)]
 pub struct NumberNode {
     pub val: i64,
 }
 
+#[derive(Debug)]
 pub struct VariableNode {
     pub symbol: Token,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub enum Operation {
     Add,
     Sub,
     Mul,
     Div,
+    Assign,
+    ArrayIndex
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum Type {
     U8,
     U16,
@@ -31,33 +35,46 @@ pub enum Type {
     Slice(Box<Type>)
 }
 
+#[derive(Debug)]
+pub struct IndexNode {
+    pub base: Box<Expression>,
+    pub index: Box<Expression>
+}
+
+#[derive(Debug)]
 pub struct BinaryOpNode {
     pub lhs: Box<Expression>,
     pub rhs: Box<Expression>,
     pub op: Operation
 }
 
+#[derive(Debug)]
 pub struct ArrayLiteral {
     pub elements: Vec<Expression>,
     pub size: Option<usize>
 }
 
+#[derive(Debug)]
 pub struct VariableDeclNode {
     pub symbol: Token,
     pub rhs: Option<Expression>,
     pub type_: Type
 }
 
+#[derive(Debug)]
 pub struct CallNode {
     pub name: Token,
     pub args: Vec<Expression>
 }
 
+#[derive(Debug)]
 pub struct StringLiteral {
     pub str: String
 }
 
+#[derive(Debug)]
 pub enum Expression {
+    Index(IndexNode),
     Binary(BinaryOpNode),
     Number(NumberNode),
     Variable(VariableNode),
@@ -150,6 +167,8 @@ fn op_to_string(op: Operation) -> &'static str {
         Operation::Sub => "-",
         Operation::Mul => "*",
         Operation::Div => "/",
+        Operation::Assign => "=",
+        Operation::ArrayIndex => panic!("Array indexing \"[]\" is not a binary operation")
     }
 }
 
@@ -288,6 +307,13 @@ fn print_expression(expr: &Expression, level: usize) {
                 print_expression(expr, level + 2);
             }
             println!("{}]", indent(level));
+        },
+        Expression::Index(index) => {
+            print!("{}ArrayIndex: ", indent(level));
+            print_expression(&index.base, 0);
+            println!("{}[", indent(level));
+            print_expression(&index.index, level + 2);
+            println!("{}]", indent(level));
         }
     }
 }
@@ -296,6 +322,20 @@ fn print_expression_root(expr: &Expression) {
     println!("=== Expression ===");
     print_expression(expr, 0);
     println!("==================");
+}
+
+fn parse_postfix(ast: &mut Ast, base: Expression, scope: usize) -> Expression {
+    let current_token = ast.get_current_token().unwrap();
+    if current_token.tt == TokenType::OpenSquare {
+        ast.advance();
+        let index = create_expr(ast, scope);
+        ast.match_token(TokenType::CloseSquare);
+        ast.advance();
+        let expr = Expression::Index(IndexNode { base: Box::new(base), index: Box::new(index) });
+        return parse_postfix(ast, expr, scope);
+    } else {
+        return base;
+    }
 }
 
 fn parse_primary(ast: &mut Ast, scope: usize) -> Expression {
@@ -325,8 +365,7 @@ fn parse_primary(ast: &mut Ast, scope: usize) -> Expression {
                         ast.advance();
                     }
                 }
-                // ast.match_token(TokenType::CloseParen);
-                let ret = Expression::Call(CallNode { name: name, args });
+                let ret = Expression::Call(CallNode { name, args });
                 ast.advance();
                 return ret;
             } else {
@@ -371,14 +410,18 @@ fn get_op(token: &Token) -> Operation {
         TokenType::Sub   => Operation::Sub,
         TokenType::Slash => Operation::Div,
         TokenType::Star  => Operation::Mul,
+        TokenType::Assign => Operation::Assign,
+        TokenType::OpenSquare => Operation::ArrayIndex,
         _ => panic!("Unknown Operator \"{}\"", token.tok)
     }
 }
 
 fn get_prec(op: TokenType) -> i32 {
     match op {
+        TokenType::OpenSquare => 6,
         TokenType::Star | TokenType::Slash => 5,
         TokenType::Plus | TokenType::Sub => 4,
+        TokenType::Assign => 3,
         TokenType::SemiColon | TokenType::Comma
         | TokenType::CloseParen | TokenType:: CloseSquare => -1,
         _ => panic!("Unknown Operator {:?}", op),
@@ -391,6 +434,7 @@ fn ast_create_binary(op: Operation, lhs: Expression, rhs: Expression) -> BinaryO
 
 fn create_expr_with_prec(ast: &mut Ast, min_prec: i32, scope: usize) -> Expression {
     let mut lhs = parse_primary(ast, scope);
+    lhs = parse_postfix(ast, lhs, scope);
     loop {
         let op_token = ast.get_current_token();
         if op_token.is_none() {
@@ -398,7 +442,7 @@ fn create_expr_with_prec(ast: &mut Ast, min_prec: i32, scope: usize) -> Expressi
         }
         let op_token = op_token.unwrap().clone();
         let prec = get_prec(op_token.tt);
-        if prec == -1 {
+        if prec == -1 || prec < min_prec {
             break;
         }
 
@@ -411,6 +455,8 @@ fn create_expr_with_prec(ast: &mut Ast, min_prec: i32, scope: usize) -> Expressi
         let rhs = create_expr_with_prec(ast, prec, scope);
 
         lhs = Expression::Binary(ast_create_binary(get_op(&op_token), lhs, rhs));
+
+        lhs = parse_postfix(ast, lhs, scope);
     }
     return lhs;
 }
@@ -430,6 +476,20 @@ fn get_type(token: &Token) -> Type {
         "i32" => Type::I32,
         "i64" => Type::I64,
         _     => panic!("Unrecognized type: \"{}\"", token.tok)
+    }
+}
+
+fn is_type(token: &Token) -> bool {
+    match token.tok.as_str() {
+        "u8"  => true,
+        "u16" => true,
+        "u32" => true,
+        "u64" => true,
+        "i8"  => true,
+        "i16" => true,
+        "i32" => true,
+        "i64" => true,
+        _     => false // TODO: handle custom types
     }
 }
 
@@ -541,7 +601,7 @@ fn create_proc(ast: &mut Ast, parent_scope: usize) -> ProcNode {
     // ast.advance(); // }
 
     ProcNode {
-        name: name,
+        name,
         block: proc_block,
         args,
         return_type    
@@ -581,10 +641,19 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                         let proc = create_proc(ast, ast.scopes[block.scope].id);
                         block.statements.push(Statement::Declaration(DeclNode::Proc(proc)));
                     } else if peek.tt == TokenType::Word || peek.tt == TokenType::ShortAssign || peek.tt == TokenType::OpenSquare {
-                        // variable declaration
-                        // TODO: shortassign
-                        let variable_decl = create_variable_declaration(ast, block.scope);
-                        block.statements.push(Statement::Declaration(DeclNode::Var(variable_decl)));
+                        if ast.tokens[ast.index + 2].tt == TokenType::Number || !is_type(&ast.tokens[ast.index + 2]) {
+                            // expression (variable assign)
+                            let expr = create_expr(ast, ast.scopes[block.scope].id);
+                            block.statements.push(Statement::ExpressionStatement(ExpressionStatement::Expression(expr)));
+                        } else if is_type(&ast.tokens[ast.index + 2]) || peek.tt == TokenType::ShortAssign || peek.tt == TokenType::Word {
+                            // array declaration 
+                            // variable declaration
+                            // TODO: shortassign
+                            let variable_decl = create_variable_declaration(ast, block.scope);
+                            block.statements.push(Statement::Declaration(DeclNode::Var(variable_decl)));
+                        } else {
+                            unreachable!("");
+                        }
                     } else if peek.tt == TokenType::OpenParen {
                         let expr = create_expr(ast, ast.scopes[block.scope].id);
                         block.statements.push(Statement::ExpressionStatement(ExpressionStatement::Expression(expr)));

@@ -82,6 +82,8 @@ impl Codegen for Expression {
                     Operation::Div => g.file.write(b" / ").unwrap(),
                     Operation::Sub => g.file.write(b" - ").unwrap(),
                     Operation::Mul => g.file.write(b" * ").unwrap(),
+                    Operation::Assign => g.file.write(b" = ").unwrap(),
+                    Operation::ArrayIndex => unreachable!("Array index should not be in a binary operation")
                 };
                 bin.rhs.walk(g);
             },
@@ -120,6 +122,12 @@ impl Codegen for Expression {
                 }
                 
                 g.file.write(b"}").unwrap();
+            },
+            Expression::Index(index) => {
+                index.base.walk(g);
+                g.file.write(b"[").unwrap();
+                index.index.walk(g);
+                g.file.write(b"]").unwrap();
             }
         } 
     }
@@ -198,24 +206,11 @@ impl Codegen for BlockNode {
 
 fn write_start(g: &mut Generator) {
     g.file.write(r#"
-
-void exit(long code);
+extern void exit(int code);
+extern int write(int fd, const char* buf, int count);
 void _start();
 void _cel_main();
-int write(int fd, const char* buf, int count);
 int writei(int fd, int number); // TODO: implement in Cel
-
-void exit(long code)
-{
-    __asm__ (
-        "mov $60, %%rax\n"
-        "mov %0, %%rdi\n"
-        "syscall\n"
-        :
-        : "r"(code)
-        : "rax", "rdi", "rcx", "r11"
-    );
-}
 
 // TODO: implement this in Cel; this is just for debugging/convenience
 int writei(int fd, int number) {
@@ -238,24 +233,7 @@ int writei(int fd, int number) {
     return count;
 }
 
-int write(int fd, const char* buf, int count)
-{
-    int ret;
-    __asm__ (
-        "mov $1, %%rax\n"
-        "mov %1, %%rdi\n"
-        "mov %2, %%rsi\n"
-        "mov %3, %%rdx\n"
-        "syscall\n"
-        "mov %%eax, %0\n"
-        : "=r"(ret)
-        : "r"((long)fd), "r"(buf), "r"((long)count)
-        : "rax", "rdi", "rsi", "rdx", "rcx", "r11", "memory"
-    );
-    return ret;
-}
-
-void _start()
+int main()
 {
     _cel_main();
     exit(0);
@@ -267,18 +245,17 @@ void _start()
 pub fn codegen_start(ast: &Ast) {
     let mut g = Generator {
         file: std::fs::File::options()
-            .create(true)
-            .append(false)
             .write(true)
+            .create(true)
             .open("out.c")
             .unwrap(),
         scopes: ast.scopes.clone()
     };
     write_start(&mut g);
     ast.root_block.as_ref().unwrap().walk(&mut g);
-    let output = std::process::Command::new("gcc")
-        .arg("-ffreestanding")
-        .arg("-nostdlib")
+    let output = std::process::Command::new("cc")
+        // .arg("-ffreestanding")
+        // .arg("-nostdlib")
         .arg("out.c")
         .arg("-o")
         .arg("out")
