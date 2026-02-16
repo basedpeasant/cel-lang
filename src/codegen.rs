@@ -31,7 +31,9 @@ impl Codegen for ProcNode {
             if self.return_type.is_none() {
                 g.file.write(b"void ").unwrap();
             } else {
-                g.file.write(get_c_type(self.return_type.unwrap()).as_bytes()).unwrap();
+                let c_type = get_c_type(self.return_type.clone().unwrap());
+                assert!(c_type.1 == 0, "Array types not supported in procedures");
+                g.file.write(c_type.0.as_bytes()).unwrap();
                 g.file.write(b" ").unwrap();
             }
             g.file.write(self.name.tok.as_bytes()).unwrap();
@@ -51,16 +53,20 @@ impl Codegen for ProcNode {
     }
 }
 
-fn get_c_type(r#type: Type) -> String {
+fn get_c_type(r#type: Type) -> (String, usize) {
     match r#type {
-        Type::U8 => "unsigned char".to_string(),
-        Type::U16 => "unsigned short".to_string(),
-        Type::U32 => "unsigned int".to_string(),
-        Type::U64 => "unsigned long".to_string(),
-        Type::I8 => "char".to_string(),
-        Type::I16 => "short".to_string(),
-        Type::I32 => "int".to_string(),
-        Type::I64 => "long".to_string(),
+        Type::U8 => ("unsigned char".to_string(), 0),
+        Type::U16 =>("unsigned short".to_string(), 0),
+        Type::U32 =>("unsigned int".to_string(), 0),
+        Type::U64 =>("unsigned long".to_string(), 0),
+        Type::I8 => ("char".to_string(), 0),
+        Type::I16 =>("short".to_string(), 0),
+        Type::I32 =>("int".to_string(), 0),
+        Type::I64 =>("long".to_string(), 0),
+        Type::Array(arr) => {
+            let str = get_c_type(*arr.1);
+            return (str.0, arr.0)
+        },
         _ => todo!("Type not implemented yet")
     }
 }
@@ -99,6 +105,21 @@ impl Codegen for Expression {
             },
             Expression::String(str) => {
                 g.file.write(format!("\"{}\"", str.str).as_bytes()).unwrap();
+            },
+            Expression::Array(arr) => {
+                g.file.write(b"{").unwrap();
+                for i in 0..arr.size.unwrap() {
+                    if i < arr.elements.len() {
+                        arr.elements[i].walk(g);
+                    } else {
+                        g.file.write(b"0").unwrap();
+                    }
+                    if i != arr.size.unwrap() - 1 {
+                        g.file.write(b",").unwrap();
+                    }
+                }
+                
+                g.file.write(b"}").unwrap();
             }
         } 
     }
@@ -106,9 +127,13 @@ impl Codegen for Expression {
 
 impl Codegen for VariableDeclNode {
     fn walk(&self, g: &mut Generator) {
-        g.file.write(get_c_type(self.type_).as_bytes()).unwrap();
+        let c_type = get_c_type(self.type_.clone());
+        g.file.write(c_type.0.as_bytes()).unwrap();
         g.file.write(b" ").unwrap();
         g.file.write(self.symbol.tok.as_bytes()).unwrap();
+        if c_type.1 > 0 {
+            g.file.write(format!("[{}]", c_type.1).as_bytes()).unwrap();
+        }
         if self.rhs.is_some() {
             g.file.write(b" = ").unwrap();
             self.rhs.as_ref().unwrap().walk(g);

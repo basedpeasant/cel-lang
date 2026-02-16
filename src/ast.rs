@@ -17,7 +17,7 @@ pub enum Operation {
     Div,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub enum Type {
     U8,
     U16,
@@ -26,13 +26,20 @@ pub enum Type {
     I8,
     I16,
     I32,
-    I64
+    I64,
+    Array((usize, Box<Type>)),
+    Slice(Box<Type>)
 }
 
 pub struct BinaryOpNode {
     pub lhs: Box<Expression>,
     pub rhs: Box<Expression>,
     pub op: Operation
+}
+
+pub struct ArrayLiteral {
+    pub elements: Vec<Expression>,
+    pub size: Option<usize>
 }
 
 pub struct VariableDeclNode {
@@ -55,7 +62,8 @@ pub enum Expression {
     Number(NumberNode),
     Variable(VariableNode),
     Call(CallNode),
-    String(StringLiteral)
+    String(StringLiteral),
+    Array(ArrayLiteral)
 }
 
 pub enum ExpressionStatementWithBlock {
@@ -205,16 +213,21 @@ fn print_expression_statement(expr_stmt: &ExpressionStatement, level: usize) {
     }
 }
 
-fn type_to_string(type_: &Type) -> &'static str {
+fn type_to_string(type_: &Type) -> String {
     match type_ {
-        Type::U8 => "U8",
-        Type::U16 => "U16",
-        Type::U32 => "U32",
-        Type::U64 => "U64",
-        Type::I8 => "i8",
-        Type::I16 => "i16",
-        Type::I32 => "i32",
-        Type::I64 => "i64",
+        Type::U8 => "U8".to_string(),
+        Type::U16 => "U16".to_string(),
+        Type::U32 => "U32".to_string(),
+        Type::U64 => "U64".to_string(),
+        Type::I8 => "i8".to_string(),
+        Type::I16 => "i16".to_string(),
+        Type::I32 => "i32".to_string(),
+        Type::I64 => "i64".to_string(),
+        Type::Array(arr) => {
+            let type_str = type_to_string(&*arr.1);
+            return format!("[{}; {}]", type_str, arr.0);
+        },
+        Type::Slice(slice) => todo!("Slices not implemented yet")
     }
 }
 
@@ -268,6 +281,13 @@ fn print_expression(expr: &Expression, level: usize) {
         },
         Expression::String(str) => {
             println!("{}String: {}", indent(level), str.str);
+        },
+        Expression::Array(arr) => {
+            println!("{}ArrayLiteral: [", indent(level));
+            for expr in &arr.elements {
+                print_expression(expr, level + 2);
+            }
+            println!("{}]", indent(level));
         }
     }
 }
@@ -319,7 +339,28 @@ fn parse_primary(ast: &mut Ast, scope: usize) -> Expression {
             let ret = Expression::String(StringLiteral { str: current_token.tok.clone() });
             ast.advance();
             return ret;
-        }
+        },
+        TokenType::OpenSquare => {
+            ast.advance();
+            let mut arr = ArrayLiteral {
+                elements: vec!(),
+                size: None
+            };
+            let mut current_token = ast.get_current_token().unwrap();
+            loop {
+                if current_token.tt == TokenType::CloseSquare {
+                    break;
+                } else if current_token.tt == TokenType::Comma {
+                    ast.advance();
+                }
+                arr.elements.push(create_expr(ast, scope));
+                current_token = ast.get_current_token().unwrap();
+            }
+            ast.match_token(TokenType::CloseSquare);
+            ast.advance();
+            let ret = Expression::Array(arr);
+            return ret;
+        },
         _ => panic!("(Parse Primary) Unexpected Token \"{}\"", current_token.tok)
     }
 }
@@ -339,7 +380,7 @@ fn get_prec(op: TokenType) -> i32 {
         TokenType::Star | TokenType::Slash => 5,
         TokenType::Plus | TokenType::Sub => 4,
         TokenType::SemiColon | TokenType::Comma
-        | TokenType::CloseParen => -1,
+        | TokenType::CloseParen | TokenType:: CloseSquare => -1,
         _ => panic!("Unknown Operator {:?}", op),
     }
 }
@@ -380,10 +421,10 @@ fn create_expr(ast: &mut Ast, scope: usize) -> Expression {
 
 fn get_type(token: &Token) -> Type {
     match token.tok.as_str() {
-        "U8"  => Type::U8,
-        "U16" => Type::U16,
-        "U32" => Type::U32,
-        "U64" => Type::U64,
+        "u8"  => Type::U8,
+        "u16" => Type::U16,
+        "u32" => Type::U32,
+        "u64" => Type::U64,
         "i8"  => Type::I8,
         "i16" => Type::I16,
         "i32" => Type::I32,
@@ -395,14 +436,38 @@ fn get_type(token: &Token) -> Type {
 fn create_variable_declaration(ast: &mut Ast, scope: usize) -> VariableDeclNode {
     let name = ast.get_current_token().unwrap().clone();
     ast.advance();
-    let type_token = ast.get_current_token().unwrap().clone();
-    let peek = ast.get_peek().unwrap();
-    if peek.tt == TokenType::SemiColon { // Declaration without rhs
-        
-    } else if peek.tt == TokenType::ShortAssign { // Declaration with rhs
+    let r#type: Type;
+    let current_token = ast.get_current_token().unwrap();
+    let mut size = 0;
+    if current_token.tt == TokenType::OpenSquare {
+        // array/slice types
         ast.advance();
+        let type_token = ast.get_current_token().unwrap().clone();
+        ast.advance();
+        if ast.get_current_token().unwrap().tt == TokenType::CloseSquare {
+            // SLICE
+            todo!("implement slice");
+        } else {
+            ast.match_token(TokenType::SemiColon);
+            ast.advance();
+            size = ast.get_current_token().unwrap().clone().tok.parse::<usize>().unwrap();
+            r#type = Type::Array((size, Box::new(get_type(&type_token))));
+            ast.advance();
+            ast.match_token(TokenType::CloseSquare);
+        }
+    } else if current_token.tt == TokenType::Word {
+        let type_token = ast.get_current_token().unwrap().clone();
+        r#type = get_type(&type_token);
     } else {
-        panic!("Unexpected token \"{:?}\"", ast.get_current_token().unwrap().tok);
+        unreachable!("");
+    }
+    let peek = ast.get_peek().unwrap().clone();
+    if peek.tt == TokenType::ShortAssign { // Declaration with rhs
+        ast.advance();
+    } else if peek.tt == TokenType::SemiColon {
+        // do nothing
+    } else {
+        panic!("Unexpected token \"{}\"", peek.tok);
     }
     ast.advance();
 
@@ -411,13 +476,22 @@ fn create_variable_declaration(ast: &mut Ast, scope: usize) -> VariableDeclNode 
     if ast.get_current_token().unwrap().tt == TokenType::SemiColon {
         rhs = None;
     } else {
-        rhs = Some(create_expr(ast, scope));
+        let mut r = create_expr(ast, scope);
+        // have to make sure that the size info is in the rhs
+        // for codegen purposes
+        match &mut r {
+            Expression::Array(arr) => {
+                arr.size = Some(size);
+            }
+            _ => {}
+        }
+        rhs = Some(r);
     }
     
     VariableDeclNode {
         symbol: name.clone(),
         rhs,
-        type_: get_type(&type_token),
+        type_: r#type,
     }
 }
 
@@ -497,14 +571,15 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                    peek.tt == TokenType::ShortAssign ||
                    peek.tt == TokenType::DoubleColon ||
                    peek.tt == TokenType::Proc ||
-                   peek.tt == TokenType::OpenParen
-                {
+                   peek.tt == TokenType::OpenParen ||
+                   peek.tt == TokenType::OpenSquare
+                 {
                     // declaration
                     if peek.tt == TokenType::Proc {
                         assert!(root, "inner functions are not supported currently");
                         let proc = create_proc(ast, ast.scopes[block.scope].id);
                         block.statements.push(Statement::Declaration(DeclNode::Proc(proc)));
-                    } else if peek.tt == TokenType::Word || peek.tt == TokenType::ShortAssign {
+                    } else if peek.tt == TokenType::Word || peek.tt == TokenType::ShortAssign || peek.tt == TokenType::OpenSquare {
                         // variable declaration
                         // TODO: shortassign
                         let variable_decl = create_variable_declaration(ast, block.scope);
