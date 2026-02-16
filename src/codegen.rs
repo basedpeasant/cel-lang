@@ -134,9 +134,18 @@ impl Codegen for VariableDeclNode {
         if c_type.1 > 0 {
             g.file.write(format!("[{}]", c_type.1).as_bytes()).unwrap();
         }
+        g.file.write(b" = ").unwrap();
         if self.rhs.is_some() {
-            g.file.write(b" = ").unwrap();
             self.rhs.as_ref().unwrap().walk(g);
+        } else {
+            g.file.write(b"{").unwrap();
+            for i in 0..c_type.1 {
+                g.file.write(b"0").unwrap();
+                if i != c_type.1 - 1 {
+                    g.file.write(b",").unwrap();
+                }
+            }
+            g.file.write(b"}").unwrap();
         }
     }
 }
@@ -194,6 +203,7 @@ void exit(long code);
 void _start();
 void _cel_main();
 int write(int fd, const char* buf, int count);
+int writei(int fd, int number); // TODO: implement in Cel
 
 void exit(long code)
 {
@@ -205,6 +215,27 @@ void exit(long code)
         : "r"(code)
         : "rax", "rdi", "rcx", "r11"
     );
+}
+
+// TODO: implement this in Cel; this is just for debugging/convenience
+int writei(int fd, int number) {
+    char rev_buf[20] = {0};
+    char buf[20] = {0};
+
+    int tmp = number;
+    int count = 0;
+    while (tmp != 0) {
+        rev_buf[count] = '0' + tmp % 10;
+        tmp /= 10;
+        count++;
+    }
+
+    for (int i = count; i >= 0; i--) {
+        buf[i] = rev_buf[count - i - 1];
+    }
+
+    write(1, buf, count);
+    return count;
 }
 
 int write(int fd, const char* buf, int count)
@@ -245,11 +276,13 @@ pub fn codegen_start(ast: &Ast) {
     };
     write_start(&mut g);
     ast.root_block.as_ref().unwrap().walk(&mut g);
-    std::process::Command::new("gcc")
+    let output = std::process::Command::new("gcc")
+        .arg("-ffreestanding")
         .arg("-nostdlib")
         .arg("out.c")
         .arg("-o")
         .arg("out")
         .output()
         .unwrap();
+    println!("{}", str::from_utf8(&output.stderr).unwrap());
 }

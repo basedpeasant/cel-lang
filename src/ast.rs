@@ -481,6 +481,7 @@ fn create_variable_declaration(ast: &mut Ast, scope: usize) -> VariableDeclNode 
         // for codegen purposes
         match &mut r {
             Expression::Array(arr) => {
+                assert!(size >= arr.elements.len(), "Excess elements in array initialization");
                 arr.size = Some(size);
             }
             _ => {}
