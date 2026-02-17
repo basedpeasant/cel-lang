@@ -4,7 +4,8 @@ use std::{fs, io::Write};
 
 struct Generator {
     file: fs::File,
-    scopes: Vec<Scope>
+    scopes: Vec<Scope>,
+    types: Vec<Type>,
 }
 
 trait Codegen {
@@ -222,6 +223,23 @@ extern int printf(const char* fmt, ...);
 void _start();
 void _cel_main();
 int writei(int fd, int number); // TODO: implement in Cel
+"#.as_bytes()).unwrap();
+
+    for r#type in &g.types {
+        match r#type {
+            Type::Custom(custom) => {
+                g.file.write(b"typedef struct {\n").unwrap();
+                for field in &custom.fields {
+                    let c_type = get_c_type(field.1.clone());
+                    g.file.write(format!("\t{} {};\n", c_type.0, field.0.tok).as_bytes()).unwrap();
+                }
+                g.file.write(format!("}} {};\n", custom.name.as_ref().unwrap().tok).as_bytes()).unwrap();
+            },
+            _ => panic!("unexpected type in code generation, only custom types should be here")
+        }
+    }
+
+    g.file.write(r#"
 
 // TODO: implement this in Cel; this is just for debugging/convenience
 int writei(int fd, int number) {
@@ -260,7 +278,8 @@ pub fn codegen_start(ast: &Ast) {
             .create(true)
             .open("out.c")
             .unwrap(),
-        scopes: ast.scopes.clone()
+        scopes: ast.scopes.clone(),
+        types: ast.types.clone(),
     };
     write_start(&mut g);
     ast.root_block.as_ref().unwrap().walk(&mut g);

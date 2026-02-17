@@ -1,4 +1,6 @@
 
+use std::rc::Rc;
+
 use crate::tokenize::{is_operator, Token, TokenType};
 
 #[derive(Debug)]
@@ -22,6 +24,12 @@ pub enum Operation {
 }
 
 #[derive(Debug, Clone)]
+pub struct CustomType {
+    pub name: Option<Token>,
+    pub fields: Vec<(Token, Type)>,
+}
+
+#[derive(Debug, Clone)]
 pub enum Type {
     U8,
     U16,
@@ -32,7 +40,8 @@ pub enum Type {
     I32,
     I64,
     Array((usize, Box<Type>)),
-    Slice(Box<Type>)
+    Slice(Box<Type>),
+    Custom(CustomType)
 }
 
 #[derive(Debug)]
@@ -131,7 +140,8 @@ pub struct Ast {
     pub root_block: Option<BlockNode>,
     tokens: Vec<Token>,
     index: usize,
-    pub scopes: Vec<Scope>
+    pub scopes: Vec<Scope>,
+    pub types: Vec<Type>,
 }
 
 impl Ast {
@@ -251,6 +261,9 @@ fn type_to_string(type_: &Type) -> String {
             let type_str = type_to_string(&*arr.1);
             return format!("[{}; {}]", type_str, arr.0);
         },
+        Type::Custom(custom) => {
+            todo!("Not implemented yet")
+        }
         Type::Slice(slice) => todo!("Slices not implemented yet")
     }
 }
@@ -484,7 +497,7 @@ fn get_type(token: &Token) -> Type {
     }
 }
 
-fn is_type(token: &Token) -> bool {
+fn is_type(ast: &Ast, token: &Token) -> bool {
     match token.tok.as_str() {
         "u8"  => true,
         "u16" => true,
@@ -605,7 +618,7 @@ fn extract_type(ast: &mut Ast) -> Type {
     match current_token.tt {
         TokenType::Word => {
             // primitive type or custom type e.g. i32 or Vec2
-            if is_type(current_token) {
+            if is_type(ast, current_token) {
                 return get_type(current_token);
             } else {
                 todo!("implement custom types");
@@ -616,10 +629,7 @@ fn extract_type(ast: &mut Ast) -> Type {
             todo!("implement pointer types");
         },
         TokenType::OpenSquare => {
-            // array type
-            // todo!("implement array types again");
             ast.advance();
-            // ast.advance();
             if ast.get_current_token().unwrap().tt == TokenType::CloseSquare {
                 // SLICE
                 todo!("implement slice");
@@ -629,11 +639,41 @@ fn extract_type(ast: &mut Ast) -> Type {
                 ast.match_token(TokenType::CloseSquare);
                 ast.advance();
                 return Type::Array((size, Box::new(extract_type(ast))));
-                // ast.advance();
-                // ast.match_token(TokenType::CloseSquare);
+            }
+        },
+        TokenType::Type => {
+            // declaration of a new type
+            ast.advance();
+            let current_token = ast.get_current_token().unwrap();
+            let mut fields = Vec::<(Token, Type)>::new();
+            match current_token.tt {
+                TokenType::Struct => {
+                    ast.advance();
+                    ast.match_token(TokenType::OpenCurly);
+                    ast.advance();
+                    loop {
+                        let current_token = ast.get_current_token().unwrap();
+                        if current_token.tt == TokenType::CloseCurly {
+                            break;
+                        }
+                        ast.match_token(TokenType::Word);
+                        let name = ast.get_current_token().unwrap().clone();
+                        ast.advance();
+                        ast.match_token(TokenType::Colon);
+                        ast.advance();
+                        let r#type = extract_type(ast);
+                        ast.advance();
+                        ast.match_token(TokenType::SemiColon);
+                        ast.advance();
+                        fields.push((name, r#type));
+                    }
+                    ast.match_token(TokenType::CloseCurly);
+                    return Type::Custom(CustomType { name: None, fields });
+                },
+                _ => panic!("Unexpected type class"),
             }
         }
-        _ => panic!("Unexpected token \"{}\" in variable declaration", current_token.tok)
+        _ => panic!("Unexpected token \"{}\" found during type extraction", current_token.tok)
     }
 }
 
@@ -659,6 +699,14 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                         assert!(root, "inner functions are not supported currently");
                         let proc = create_proc(ast, ast.scopes[block.scope].id, name);
                         block.statements.push(Statement::Declaration(DeclNode::Proc(proc)));
+                    } else if peek.tt == TokenType::Type {
+                        ast.advance();
+                        let mut new_type = extract_type(ast);
+                        match &mut new_type {
+                            Type::Custom(custom) => custom.name = Some(name),
+                            _ => unreachable!()
+                        }
+                        ast.types.push(new_type);
                     } else {
                         ast.advance();
                         let variable_decl = create_variable_declaration(ast, block.scope, name);
@@ -716,7 +764,8 @@ pub fn ast_start(tokens: Vec<Token>) -> Ast {
         root_block: None,
         tokens,
         index: 0,
-        scopes: vec!()
+        scopes: vec!(),
+        types: vec!(),
     };
 
     ast.root_block = Some(create_block(&mut ast, true, None));
