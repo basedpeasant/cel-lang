@@ -90,6 +90,7 @@ pub enum ExpressionStatementWithBlock {
 pub enum ExpressionStatement {
     Return(ReturnNode),
     Expression(Expression),
+    Defer(Expression),
     ExpressionWithBlock(ExpressionStatementWithBlock),
 }
 
@@ -228,6 +229,10 @@ fn print_expression_statement(expr_stmt: &ExpressionStatement, level: usize) {
         ExpressionStatement::Return(ret) => {
             println!("{}Return:", indent(level));
             print_expression(&ret.expr, level + 1);
+        }
+        ExpressionStatement::Defer(expr) => {
+            println!("{}Defer:", indent(level));
+            print_expression(&expr, level + 1);
         }
     }
 }
@@ -493,34 +498,14 @@ fn is_type(token: &Token) -> bool {
     }
 }
 
-fn create_variable_declaration(ast: &mut Ast, scope: usize) -> VariableDeclNode {
-    let name = ast.get_current_token().unwrap().clone();
-    ast.advance();
-    let r#type: Type;
-    let current_token = ast.get_current_token().unwrap();
-    let mut size = 0;
-    if current_token.tt == TokenType::OpenSquare {
-        // array/slice types
-        ast.advance();
-        let type_token = ast.get_current_token().unwrap().clone();
-        ast.advance();
-        if ast.get_current_token().unwrap().tt == TokenType::CloseSquare {
-            // SLICE
-            todo!("implement slice");
-        } else {
-            ast.match_token(TokenType::SemiColon);
-            ast.advance();
-            size = ast.get_current_token().unwrap().clone().tok.parse::<usize>().unwrap();
-            r#type = Type::Array((size, Box::new(get_type(&type_token))));
-            ast.advance();
-            ast.match_token(TokenType::CloseSquare);
-        }
-    } else if current_token.tt == TokenType::Word {
-        let type_token = ast.get_current_token().unwrap().clone();
-        r#type = get_type(&type_token);
-    } else {
-        unreachable!("");
-    }
+fn create_variable_declaration(ast: &mut Ast, scope: usize, name: Token) -> VariableDeclNode {
+    // let name = ast.get_current_token().unwrap().clone();
+    let r#type: Type = extract_type(ast);
+    // let current_token = ast.get_current_token().unwrap();
+    let size = match &r#type {
+        Type::Array(arr) => arr.0,
+        _ => 0
+    };
     let peek = ast.get_peek().unwrap().clone();
     if peek.tt == TokenType::ShortAssign { // Declaration with rhs
         ast.advance();
@@ -556,13 +541,9 @@ fn create_variable_declaration(ast: &mut Ast, scope: usize) -> VariableDeclNode 
     }
 }
 
-fn create_proc(ast: &mut Ast, parent_scope: usize) -> ProcNode {
-    let name = ast.get_current_token().unwrap().clone();
+fn create_proc(ast: &mut Ast, parent_scope: usize, name: Token) -> ProcNode {
     ast.advance(); // proc
-    ast.advance(); // ::
-    // procedure
-    ast.match_token(TokenType::DoubleColon);
-    ast.advance();
+    ast.advance(); // (
     ast.match_token(TokenType::OpenParen);
     // TODO: handle the arguments here
     ast.advance();
@@ -576,6 +557,8 @@ fn create_proc(ast: &mut Ast, parent_scope: usize) -> ProcNode {
             current_token = ast.get_current_token().unwrap().clone();
         }
         let symbol = current_token;
+        ast.advance();
+        ast.match_token(TokenType::Colon);
         ast.advance();
         let r#type = ast.get_current_token().unwrap();
         args.push(VariableDeclNode {
@@ -616,52 +599,72 @@ fn create_new_scope(ast: &mut Ast, parent_scope: Option<usize>) -> usize {
     return ast.scopes.len() - 1;
 }
 
+fn extract_type(ast: &mut Ast) -> Type {
+    // after the colon
+    let current_token = ast.get_current_token().unwrap();
+    match current_token.tt {
+        TokenType::Word => {
+            // primitive type or custom type e.g. i32 or Vec2
+            if is_type(current_token) {
+                return get_type(current_token);
+            } else {
+                todo!("implement custom types");
+            }
+        },
+        TokenType::Hat => {
+            // pointer type
+            todo!("implement pointer types");
+        },
+        TokenType::OpenSquare => {
+            // array type
+            // todo!("implement array types again");
+            ast.advance();
+            // ast.advance();
+            if ast.get_current_token().unwrap().tt == TokenType::CloseSquare {
+                // SLICE
+                todo!("implement slice");
+            } else {
+                let size = ast.get_current_token().unwrap().clone().tok.parse::<usize>().unwrap();
+                ast.advance();
+                ast.match_token(TokenType::CloseSquare);
+                ast.advance();
+                return Type::Array((size, Box::new(extract_type(ast))));
+                // ast.advance();
+                // ast.match_token(TokenType::CloseSquare);
+            }
+        }
+        _ => panic!("Unexpected token \"{}\" in variable declaration", current_token.tok)
+    }
+}
+
 fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> BlockNode {
     let mut block = BlockNode{
         statements: vec!(),
         scope: create_new_scope(ast, parent_scope),
     };
+    let mut defers = Vec::<Statement>::new();
     
     loop {
         let current_token = ast.get_current_token().unwrap();
         match current_token.tt {
-            TokenType::Number | TokenType :: Word => {
+            TokenType :: Word => {
                 // expression or Decl
                 let peek = ast.get_peek().unwrap(); // TODO: handle errors for this later
-                if peek.tt == TokenType::Word ||
-                   peek.tt == TokenType::ShortAssign ||
-                   peek.tt == TokenType::DoubleColon ||
-                   peek.tt == TokenType::Proc ||
-                   peek.tt == TokenType::OpenParen ||
-                   peek.tt == TokenType::OpenSquare ||
-                   peek.tt == TokenType::Star
-                 {
+                if peek.tt == TokenType::Colon {
+                    let name = current_token.clone();
+                    ast.advance();
+                    let peek = ast.get_peek().unwrap();
                     // declaration
                     if peek.tt == TokenType::Proc {
                         assert!(root, "inner functions are not supported currently");
-                        let proc = create_proc(ast, ast.scopes[block.scope].id);
+                        let proc = create_proc(ast, ast.scopes[block.scope].id, name);
                         block.statements.push(Statement::Declaration(DeclNode::Proc(proc)));
-                    } else if peek.tt == TokenType::Word || peek.tt == TokenType::ShortAssign || peek.tt == TokenType::OpenSquare {
-                        if peek.tt == TokenType::ShortAssign || is_type(&ast.tokens[ast.index + 2]) || peek.tt == TokenType::Word {
-                            // array declaration 
-                            // variable declaration
-                            // TODO: shortassign
-                            let variable_decl = create_variable_declaration(ast, block.scope);
-                            block.statements.push(Statement::Declaration(DeclNode::Var(variable_decl)));
-                        } else if ast.tokens[ast.index + 2].tt == TokenType::Number || !is_type(&ast.tokens[ast.index + 2]) {
-                            // expression (variable assign)
-                            let expr = create_expr(ast, ast.scopes[block.scope].id);
-                            block.statements.push(Statement::ExpressionStatement(ExpressionStatement::Expression(expr)));
-                        } else {
-                            unreachable!("");
-                        }
-                    } else if peek.tt == TokenType::OpenParen {
-                        let expr = create_expr(ast, ast.scopes[block.scope].id);
-                        block.statements.push(Statement::ExpressionStatement(ExpressionStatement::Expression(expr)));
                     } else {
-                        todo!("handle errors");
+                        ast.advance();
+                        let variable_decl = create_variable_declaration(ast, block.scope, name);
+                        block.statements.push(Statement::Declaration(DeclNode::Var(variable_decl)));
                     }
-                } else if is_operator(&peek.tt) {
+                } else if is_operator(&peek.tt) || peek.tt == TokenType::OpenParen {
                     assert!(!root, "Expressions are not allowed in the top level scope");
                     // expression statement
                     let expr = create_expr(ast, ast.scopes[block.scope].id);
@@ -669,6 +672,10 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                 } else {
                     unreachable!();
                 }
+            },
+            TokenType::Number => {
+                let expr = create_expr(ast, ast.scopes[block.scope].id);
+                block.statements.push(Statement::ExpressionStatement(ExpressionStatement::Expression(expr)));
             },
             TokenType::CloseCurly => {
                 if root {
@@ -681,7 +688,12 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                 ast.advance();
                 let expr = create_expr(ast, ast.scopes[block.scope].id);
                 block.statements.push(Statement::ExpressionStatement(ExpressionStatement::Return(ReturnNode { expr })));
-                
+            },
+            TokenType::Defer => {
+                assert!(!root, "Defer statements are not allowed in the top level scope");
+                ast.advance();
+                let expr = create_expr(ast, ast.scopes[block.scope].id);
+                defers.push(Statement::ExpressionStatement(ExpressionStatement::Defer(expr)));
             }
             _ => todo!("Unexpected Token \"{:?}\":{}", current_token.tt, ast.index),
         }
@@ -691,6 +703,11 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
             break;
         }
     }
+
+    for expr in defers.into_iter().rev() {
+        block.statements.push(expr);
+    }
+    
     return block;
 }
 

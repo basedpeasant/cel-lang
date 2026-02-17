@@ -200,6 +200,10 @@ impl Codegen for BlockNode {
                              g.file.write(b"return ").unwrap();
                              ret.expr.walk(g);
                              g.file.write(b";\n").unwrap();
+                        },
+                        ExpressionStatement::Defer(expr) => {
+                            expr.walk(g);
+                            g.file.write(b";\n").unwrap();
                         }
                     }
                 },
