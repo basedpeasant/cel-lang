@@ -633,7 +633,8 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                    peek.tt == TokenType::DoubleColon ||
                    peek.tt == TokenType::Proc ||
                    peek.tt == TokenType::OpenParen ||
-                   peek.tt == TokenType::OpenSquare
+                   peek.tt == TokenType::OpenSquare ||
+                   peek.tt == TokenType::Star
                  {
                     // declaration
                     if peek.tt == TokenType::Proc {
@@ -641,16 +642,16 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                         let proc = create_proc(ast, ast.scopes[block.scope].id);
                         block.statements.push(Statement::Declaration(DeclNode::Proc(proc)));
                     } else if peek.tt == TokenType::Word || peek.tt == TokenType::ShortAssign || peek.tt == TokenType::OpenSquare {
-                        if ast.tokens[ast.index + 2].tt == TokenType::Number || !is_type(&ast.tokens[ast.index + 2]) {
-                            // expression (variable assign)
-                            let expr = create_expr(ast, ast.scopes[block.scope].id);
-                            block.statements.push(Statement::ExpressionStatement(ExpressionStatement::Expression(expr)));
-                        } else if is_type(&ast.tokens[ast.index + 2]) || peek.tt == TokenType::ShortAssign || peek.tt == TokenType::Word {
+                        if peek.tt == TokenType::ShortAssign || is_type(&ast.tokens[ast.index + 2]) || peek.tt == TokenType::Word {
                             // array declaration 
                             // variable declaration
                             // TODO: shortassign
                             let variable_decl = create_variable_declaration(ast, block.scope);
                             block.statements.push(Statement::Declaration(DeclNode::Var(variable_decl)));
+                        } else if ast.tokens[ast.index + 2].tt == TokenType::Number || !is_type(&ast.tokens[ast.index + 2]) {
+                            // expression (variable assign)
+                            let expr = create_expr(ast, ast.scopes[block.scope].id);
+                            block.statements.push(Statement::ExpressionStatement(ExpressionStatement::Expression(expr)));
                         } else {
                             unreachable!("");
                         }

@@ -1,6 +1,6 @@
 use crate::const_assert;
 
-const TOKEN_TYPE_COUNT: i32 = 39;
+const TOKEN_TYPE_COUNT: i32 = 40;
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum TokenType {
     Unknown,
@@ -17,6 +17,7 @@ pub enum TokenType {
     DoubleQuote,
     SingleQuote,
     Dot,
+    Hat,
     Comma,
     Equal,
     NotEqual,
@@ -70,12 +71,13 @@ fn is_whitespace(c: char) -> bool {
     }
 }
 
-const_assert!(TOKEN_TYPE_COUNT == 39, "Update: TOKEN_TYPE_COUNT has changed");
+const_assert!(TOKEN_TYPE_COUNT == 40, "Update: TOKEN_TYPE_COUNT has changed");
 fn is_delim(c: char) -> bool {
     match c {
         '+' => true,
         '-' => true,
         '*' => true,
+        '^' => true,
         '/' => true,
         '%' => true,
         // ' ' => true,
@@ -106,6 +108,7 @@ fn get_delim_tt(c: char) -> TokenType {
         '+' => TokenType::Plus,
         '-' => TokenType::Sub,
         '*' => TokenType::Star,
+        '^' => TokenType::Hat,
         '/' => TokenType::Slash,
         '%' => TokenType::Percent,
         ';' => TokenType::SemiColon,
@@ -129,7 +132,7 @@ fn get_delim_tt(c: char) -> TokenType {
     }
 }
 
-const_assert!(TOKEN_TYPE_COUNT == 39, "Update: TOKEN_TYPE_COUNT has changed");
+const_assert!(TOKEN_TYPE_COUNT == 40, "Update: TOKEN_TYPE_COUNT has changed");
 fn get_keyword_tt(str: &str) -> TokenType {
     match str {
         "for"     => TokenType::For,
@@ -143,7 +146,7 @@ fn get_keyword_tt(str: &str) -> TokenType {
     }
 }
 
-const_assert!(TOKEN_TYPE_COUNT == 39, "Update: TOKEN_TYPE_COUNT has changed");
+const_assert!(TOKEN_TYPE_COUNT == 40, "Update: TOKEN_TYPE_COUNT has changed");
 fn is_double_delim(c: char, p: char) -> bool {
     if c == ':' && p == '=' {
         true
@@ -164,7 +167,7 @@ fn is_double_delim(c: char, p: char) -> bool {
     }
 }
 
-const_assert!(TOKEN_TYPE_COUNT == 39, "Update: TOKEN_TYPE_COUNT has changed");
+const_assert!(TOKEN_TYPE_COUNT == 40, "Update: TOKEN_TYPE_COUNT has changed");
 fn get_double_delim_tt(c: char, p: char) -> TokenType {
     if c == ':' && p == '=' {
         TokenType::ShortAssign

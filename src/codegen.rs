@@ -142,18 +142,24 @@ impl Codegen for VariableDeclNode {
         if c_type.1 > 0 {
             g.file.write(format!("[{}]", c_type.1).as_bytes()).unwrap();
         }
-        g.file.write(b" = ").unwrap();
         if self.rhs.is_some() {
+            g.file.write(b" = ").unwrap();
             self.rhs.as_ref().unwrap().walk(g);
         } else {
-            g.file.write(b"{").unwrap();
-            for i in 0..c_type.1 {
-                g.file.write(b"0").unwrap();
-                if i != c_type.1 - 1 {
-                    g.file.write(b",").unwrap();
+            match &self.type_ {
+                Type::Array((_, _)) => {
+                    g.file.write(b" = ").unwrap();
+                    g.file.write(b"{").unwrap();
+                    for i in 0..c_type.1 {
+                        g.file.write(b"0").unwrap();
+                        if i != c_type.1 - 1 {
+                            g.file.write(b",").unwrap();
+                        }
+                    }
+                    g.file.write(b"}").unwrap();
                 }
+                _ => {}
             }
-            g.file.write(b"}").unwrap();
         }
     }
 }
@@ -208,6 +214,7 @@ fn write_start(g: &mut Generator) {
     g.file.write(r#"
 extern void exit(int code);
 extern int write(int fd, const char* buf, int count);
+extern int printf(const char* fmt, ...);
 void _start();
 void _cel_main();
 int writei(int fd, int number); // TODO: implement in Cel
