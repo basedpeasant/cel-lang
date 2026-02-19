@@ -68,6 +68,7 @@ fn get_c_type(r#type: Type) -> (String, usize) {
             let str = get_c_type(*arr.1);
             return (str.0, arr.0)
         },
+        Type::Pointer(ptr) => (format!("{}{}", get_c_type(ptr.as_ref().clone()).0, "*"), 0),
         _ => todo!("Type not implemented yet")
     }
 }

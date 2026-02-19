@@ -39,6 +39,7 @@ pub enum Type {
     I16,
     I32,
     I64,
+    Pointer(Box<Type>),
     Array((usize, Box<Type>)),
     Slice(Box<Type>),
     Custom(CustomType)
@@ -249,10 +250,10 @@ fn print_expression_statement(expr_stmt: &ExpressionStatement, level: usize) {
 
 fn type_to_string(type_: &Type) -> String {
     match type_ {
-        Type::U8 => "U8".to_string(),
-        Type::U16 => "U16".to_string(),
-        Type::U32 => "U32".to_string(),
-        Type::U64 => "U64".to_string(),
+        Type::U8 => "u8".to_string(),
+        Type::U16 => "u16".to_string(),
+        Type::U32 => "u32".to_string(),
+        Type::U64 => "u64".to_string(),
         Type::I8 => "i8".to_string(),
         Type::I16 => "i16".to_string(),
         Type::I32 => "i32".to_string(),
@@ -263,7 +264,8 @@ fn type_to_string(type_: &Type) -> String {
         },
         Type::Custom(custom) => {
             todo!("Not implemented yet")
-        }
+        },
+        Type::Pointer(ptr) => format!("{}{}", "*", type_to_string(&ptr)),
         Type::Slice(slice) => todo!("Slices not implemented yet")
     }
 }
@@ -520,7 +522,7 @@ fn create_variable_declaration(ast: &mut Ast, scope: usize, name: Token) -> Vari
         _ => 0
     };
     let peek = ast.get_peek().unwrap().clone();
-    if peek.tt == TokenType::ShortAssign { // Declaration with rhs
+    if peek.tt == TokenType::Assign { // Declaration with rhs
         ast.advance();
     } else if peek.tt == TokenType::SemiColon {
         // do nothing
@@ -621,12 +623,13 @@ fn extract_type(ast: &mut Ast) -> Type {
             if is_type(ast, current_token) {
                 return get_type(current_token);
             } else {
-                todo!("implement custom types");
+                todo!("implement custom type \"{}\"", current_token.tok);
             }
         },
-        TokenType::Hat => {
+        TokenType::Star => {
             // pointer type
-            todo!("implement pointer types");
+            ast.advance();
+            return Type::Pointer(Box::new(extract_type(ast)));
         },
         TokenType::OpenSquare => {
             ast.advance();
@@ -663,8 +666,13 @@ fn extract_type(ast: &mut Ast) -> Type {
                         ast.advance();
                         let r#type = extract_type(ast);
                         ast.advance();
-                        ast.match_token(TokenType::SemiColon);
-                        ast.advance();
+                        let current_token = ast.get_current_token().unwrap();
+                        if current_token.tt == TokenType::Comma {
+                            ast.advance();
+                        } else if current_token.tt != TokenType::CloseCurly {
+                            // TODO: maek this error better lol
+                            panic!("Seems you have missed a comma!");
+                        }
                         fields.push((name, r#type));
                     }
                     ast.match_token(TokenType::CloseCurly);
