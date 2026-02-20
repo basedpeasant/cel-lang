@@ -6,6 +6,7 @@ struct Generator {
     file: fs::File,
     scopes: Vec<Scope>,
     types: Vec<Type>,
+    indentation_level: u8
 }
 
 trait Codegen {
@@ -175,11 +176,45 @@ impl Codegen for DeclNode {
     }
 }
 
+impl Codegen for IfNode {
+    fn walk(&self, g: &mut Generator) {
+        if self.is_else {
+            print_indentations(&mut g.file, g.indentation_level);
+            g.file.write(b"else ").unwrap();
+        }
+        if self.condition.is_some() {
+            g.file.write(b"if (").unwrap();
+            self.condition.as_ref().unwrap().walk(g);
+            g.file.write(b") {\n").unwrap();
+            self.block.walk(g);
+            print_indentations(&mut g.file, g.indentation_level);
+            g.file.write(b"}\n").unwrap();
+        } else {
+            g.file.write(b"{\n").unwrap();
+            self.block.walk(g);
+            print_indentations(&mut g.file, g.indentation_level);
+            g.file.write(b"}\n").unwrap();
+        }
+        if self.next.is_some() {
+            self.next.as_ref().unwrap().walk(g);
+        }
+    }
+}
+
+impl Codegen for ExpressionStatementWithBlock {
+    fn walk(&self, g: &mut Generator) {
+        match self {
+            ExpressionStatementWithBlock::If(if_node) => if_node.walk(g),
+        }
+    }
+}
+
 impl Codegen for BlockNode {
     fn walk(&self, g: &mut Generator) {
+        g.indentation_level += 1;
         for n in &self.statements {
             if self.scope != 0 {
-                g.file.write(b"\t").unwrap();
+                print_indentations(&mut g.file, g.indentation_level);
             }
             match n {
                 Statement::Declaration(decl) => {
@@ -197,7 +232,9 @@ impl Codegen for BlockNode {
                              expr.walk(g);
                              g.file.write(b";\n").unwrap();
                         },
-                        ExpressionStatement::ExpressionWithBlock(expr) => todo!(),
+                        ExpressionStatement::ExpressionWithBlock(expr) => {
+                             expr.walk(g);
+                        },
                         ExpressionStatement::Return(ret) => {
                              g.file.write(b"return ").unwrap();
                              ret.expr.walk(g);
@@ -212,7 +249,14 @@ impl Codegen for BlockNode {
                 _ => todo!("not implemented yet")
             }
             n.walk(g);
-        }        
+        }
+        g.indentation_level -= 1;        
+    }
+}
+
+fn print_indentations(g: &mut fs::File, indentation_level: u8) {
+    for i in 0..indentation_level {
+        g.write(b"    ").unwrap();
     }
 }
 
@@ -231,10 +275,11 @@ int writei(int fd, int number); // TODO: implement in Cel
             Type::Custom(custom) => {
                 g.file.write(b"typedef struct {\n").unwrap();
                 for field in &custom.fields {
+                    print_indentations(&mut g.file, g.indentation_level + 1);
                     let c_type = get_c_type(field.1.clone());
-                    g.file.write(format!("\t{} {};\n", c_type.0, field.0.tok).as_bytes()).unwrap();
+                    g.file.write(format!("{} {};\n", c_type.0, field.0.tok).as_bytes()).unwrap();
                 }
-                g.file.write(format!("}} {};\n", custom.name.as_ref().unwrap().tok).as_bytes()).unwrap();
+                g.file.write(format!("}} {};\n\n", custom.name.as_ref().unwrap().tok).as_bytes()).unwrap();
             },
             _ => panic!("unexpected type in code generation, only custom types should be here")
         }
@@ -281,6 +326,7 @@ pub fn codegen_start(ast: &Ast) {
             .unwrap(),
         scopes: ast.scopes.clone(),
         types: ast.types.clone(),
+        indentation_level: 0
     };
     write_start(&mut g);
     ast.root_block.as_ref().unwrap().walk(&mut g);

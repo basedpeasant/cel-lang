@@ -92,9 +92,15 @@ pub enum Expression {
     String(StringLiteral),
     Array(ArrayLiteral)
 }
+pub struct IfNode {
+    pub block: BlockNode,
+    pub condition: Option<Expression>,
+    pub next: Option<Box<IfNode>>,
+    pub is_else: bool,
+}
 
 pub enum ExpressionStatementWithBlock {
-    //TODO:
+    If(IfNode),
 }
 
 pub enum ExpressionStatement {
@@ -442,8 +448,11 @@ fn get_prec(op: TokenType) -> i32 {
         TokenType::Star | TokenType::Slash => 5,
         TokenType::Plus | TokenType::Sub => 4,
         TokenType::Assign => 3,
-        TokenType::SemiColon | TokenType::Comma
-        | TokenType::CloseParen | TokenType:: CloseSquare => -1,
+        TokenType::SemiColon
+        | TokenType::Comma
+        | TokenType::CloseParen
+        | TokenType::CloseSquare
+        | TokenType::OpenCurly  => -1,
         _ => panic!("Unknown Operator {:?}", op),
     }
 }
@@ -685,6 +694,49 @@ fn extract_type(ast: &mut Ast) -> Type {
     }
 }
 
+fn create_if(ast: &mut Ast, parent_scope: usize) -> IfNode {
+    let current_token = ast.get_current_token().unwrap().clone();
+    let peek = ast.get_peek().unwrap().clone();
+    let mut skip_condition = false;
+    let mut is_else = false;
+    if current_token.tt == TokenType::If {
+        // if
+        ast.advance();
+    } else if current_token.tt == TokenType::Else && peek.tt == TokenType::OpenCurly {
+        // else
+        skip_condition = true;
+        is_else = true;
+        ast.advance();    
+    } else if current_token.tt == TokenType::Else && peek.tt == TokenType::If {
+        // else if
+        is_else = true;
+        ast.advance();
+        ast.advance();
+    } else {
+        unreachable!();
+    }
+    let mut condition = None;
+    if !skip_condition {
+        condition = Some(create_expr(ast, parent_scope));
+    }
+    ast.match_token(TokenType::OpenCurly);
+    ast.advance();
+    let if_block = create_block(ast, false, Some(parent_scope));
+    ast.match_token(TokenType::CloseCurly);
+    let peek = ast.get_peek().unwrap();
+    let mut next = None;
+    if peek.tt == TokenType::Else {
+        ast.advance();
+        next = Some(Box::new(create_if(ast, parent_scope)));
+    }
+    return IfNode {
+        block: if_block,
+        condition,
+        next,
+        is_else
+    };
+}
+
 fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> BlockNode {
     let mut block = BlockNode{
         statements: vec!(),
@@ -750,6 +802,26 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                 ast.advance();
                 let expr = create_expr(ast, ast.scopes[block.scope].id);
                 defers.push(Statement::ExpressionStatement(ExpressionStatement::Defer(expr)));
+            },
+            TokenType::If => {
+                assert!(!root, "if statements are not allowed in the top level scope");
+                // ast.advance();
+                // let condition = create_expr(ast, ast.scopes[block.scope].id);
+                // ast.match_token(TokenType::OpenCurly);
+                // ast.advance();
+                // let if_block = create_block(ast, false, Some(ast.scopes[block.scope].id));
+                // ast.match_token(TokenType::CloseCurly);
+                // let peek = ast.get_peek().unwrap();
+                // if peek.tt == TokenType::Else {
+                //     ast.advance();
+                //     ast.advance();
+                // }
+                block.statements.push(Statement::ExpressionStatement(
+                    ExpressionStatement::ExpressionWithBlock(
+                        ExpressionStatementWithBlock::If(
+                            create_if(ast, ast.scopes[block.scope].id))
+                        )
+                ));
             }
             _ => todo!("Unexpected Token \"{:?}\":{}", current_token.tt, ast.index),
         }
