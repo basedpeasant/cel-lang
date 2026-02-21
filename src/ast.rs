@@ -21,7 +21,8 @@ pub enum Operation {
     Or,
     Equal,
     Assign,
-    ArrayIndex
+    ArrayIndex,
+    Access
 }
 
 #[derive(Debug, Clone)]
@@ -200,6 +201,7 @@ fn op_to_string(op: Operation) -> &'static str {
         Operation::Assign => "=",
         Operation::Equal => "==",
         Operation::Or => "||",
+        Operation::Access => ".",
         Operation::ArrayIndex => panic!("Array indexing \"[]\" is not a binary operation")
     }
 }
@@ -476,13 +478,15 @@ fn get_op(token: &Token) -> Operation {
         TokenType::LogicalOr  => Operation::Or,
         TokenType::Equal => Operation::Equal,
         TokenType::OpenSquare => Operation::ArrayIndex,
+        TokenType::Dot => Operation::Access,
         _ => panic!("Unknown Operator \"{}\"", token.tok)
     }
 }
 
 fn get_prec(op: TokenType) -> i32 {
     match op {
-        TokenType::OpenSquare => 8,
+        TokenType::OpenSquare => 9,
+        TokenType::Dot => 8,
         TokenType::Star | TokenType::Slash => 7,
         TokenType::Plus | TokenType::Sub => 6,
         TokenType::Equal => 5,

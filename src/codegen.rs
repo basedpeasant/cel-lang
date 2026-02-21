@@ -114,6 +114,7 @@ impl Codegen for Expression {
                     Operation::Assign => g.file.write(b" = ").unwrap(),
                     Operation::Or => g.file.write(b" || ").unwrap(),
                     Operation::Equal => g.file.write(b" == ").unwrap(),
+                    Operation::Access => g.file.write(b".").unwrap(),
                     Operation::ArrayIndex => unreachable!("Array index should not be in a binary operation")
                 };
                 bin.rhs.walk(g);
