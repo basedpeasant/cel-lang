@@ -1,6 +1,6 @@
 use crate::const_assert;
 
-const TOKEN_TYPE_COUNT: i32 = 44;
+const TOKEN_TYPE_COUNT: i32 = 46;
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum TokenType {
     Unknown,
@@ -19,6 +19,8 @@ pub enum TokenType {
     Dot,
     Hat,
     Comma,
+    Or,
+    LogicalOr,
     Equal,
     NotEqual,
     Lt,
@@ -75,7 +77,7 @@ fn is_whitespace(c: char) -> bool {
     }
 }
 
-const_assert!(TOKEN_TYPE_COUNT == 44, "Update: TOKEN_TYPE_COUNT has changed");
+const_assert!(TOKEN_TYPE_COUNT == 46, "Update: TOKEN_TYPE_COUNT has changed");
 fn is_delim(c: char) -> bool {
     match c {
         '+' => true,
@@ -100,6 +102,7 @@ fn is_delim(c: char) -> bool {
         ']' => true,
         '{' => true,
         '}' => true,
+        '|' => true,
         '\'' => true,
         // '\n' => true,
         '.' => true,
@@ -130,13 +133,14 @@ fn get_delim_tt(c: char) -> TokenType {
         ']' => TokenType::CloseSquare,
         '{' => TokenType::OpenCurly,
         '}' => TokenType::CloseCurly,
+        '|' => TokenType::Or,
         '\'' =>TokenType::SingleQuote,
         '.' => TokenType::Dot,
         _   => TokenType::Unknown
     }
 }
 
-const_assert!(TOKEN_TYPE_COUNT == 44, "Update: TOKEN_TYPE_COUNT has changed");
+const_assert!(TOKEN_TYPE_COUNT == 46, "Update: TOKEN_TYPE_COUNT has changed");
 fn get_keyword_tt(str: &str) -> TokenType {
     match str {
         "for"     => TokenType::For,
@@ -154,7 +158,7 @@ fn get_keyword_tt(str: &str) -> TokenType {
     }
 }
 
-const_assert!(TOKEN_TYPE_COUNT == 44, "Update: TOKEN_TYPE_COUNT has changed");
+const_assert!(TOKEN_TYPE_COUNT == 46, "Update: TOKEN_TYPE_COUNT has changed");
 fn is_double_delim(c: char, p: char) -> bool {
     if c == ':' && p == '=' {
         true
@@ -170,12 +174,14 @@ fn is_double_delim(c: char, p: char) -> bool {
         true
     } else if c == '!' && p == '=' {
         true
+    } else if c == '|' && p == '|' {
+        true
     } else {
         false
     }
 }
 
-const_assert!(TOKEN_TYPE_COUNT == 44, "Update: TOKEN_TYPE_COUNT has changed");
+const_assert!(TOKEN_TYPE_COUNT == 46, "Update: TOKEN_TYPE_COUNT has changed");
 fn get_double_delim_tt(c: char, p: char) -> TokenType {
     if c == ':' && p == '=' {
         TokenType::ShortAssign
@@ -191,6 +197,8 @@ fn get_double_delim_tt(c: char, p: char) -> TokenType {
         TokenType::Gte
     } else if c == '!' && p == '=' {
         TokenType::NotEqual
+    } else if c == '|' && p == '|' {
+        TokenType::LogicalOr
     } else {
         TokenType::Unknown
     }

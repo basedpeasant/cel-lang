@@ -1,12 +1,14 @@
 
 use crate::ast::*;
-use std::{fs, io::Write};
+use std::{collections::HashMap, fs, io::Write};
 
 struct Generator {
     file: fs::File,
     scopes: Vec<Scope>,
     types: Vec<Type>,
-    indentation_level: u8
+    indentation_level: u8,
+    strings: HashMap<String, StringLiteral>,
+    string_map: HashMap<String, String>
 }
 
 trait Codegen {
@@ -65,6 +67,7 @@ fn get_c_type(r#type: Type) -> (String, usize) {
         Type::I16 =>("short".to_string(), 0),
         Type::I32 =>("int".to_string(), 0),
         Type::I64 =>("long".to_string(), 0),
+        Type::String =>("string".to_string(), 0),
         Type::Array(arr) => {
             let str = get_c_type(*arr.1);
             return (str.0, arr.0)
@@ -86,6 +89,8 @@ impl Codegen for Expression {
                     Operation::Sub => g.file.write(b" - ").unwrap(),
                     Operation::Mul => g.file.write(b" * ").unwrap(),
                     Operation::Assign => g.file.write(b" = ").unwrap(),
+                    Operation::Or => g.file.write(b" || ").unwrap(),
+                    Operation::Equal => g.file.write(b" == ").unwrap(),
                     Operation::ArrayIndex => unreachable!("Array index should not be in a binary operation")
                 };
                 bin.rhs.walk(g);
@@ -109,7 +114,7 @@ impl Codegen for Expression {
                 g.file.write(b")").unwrap();
             },
             Expression::String(str) => {
-                g.file.write(format!("\"{}\"", str.str).as_bytes()).unwrap();
+                g.file.write(format!("{}", g.string_map.get(&str.str.to_string()).unwrap()).as_bytes()).unwrap();
             },
             Expression::Array(arr) => {
                 g.file.write(b"{").unwrap();
@@ -255,7 +260,7 @@ impl Codegen for BlockNode {
 }
 
 fn print_indentations(g: &mut fs::File, indentation_level: u8) {
-    for i in 0..indentation_level {
+    for _ in 0..indentation_level {
         g.write(b"    ").unwrap();
     }
 }
@@ -268,6 +273,11 @@ extern int printf(const char* fmt, ...);
 void _start();
 void _cel_main();
 int writei(int fd, int number); // TODO: implement in Cel
+typedef struct {
+    unsigned int len;
+    const char* ptr;
+} string;
+
 "#.as_bytes()).unwrap();
 
     for r#type in &g.types {
@@ -283,6 +293,16 @@ int writei(int fd, int number); // TODO: implement in Cel
             },
             _ => panic!("unexpected type in code generation, only custom types should be here")
         }
+    }
+
+    let mut count = 0;
+    for str in &g.strings {
+        let str = str.0;
+        let len = str.len();
+        let mapped_name = format!("s{}", count);
+        g.file.write(format!("static string {} = {{ {}, \"{}\" }};", mapped_name, len, str).as_bytes()).unwrap();
+        g.string_map.insert(str.clone(), mapped_name);
+        count += 1;
     }
 
     g.file.write(r#"
@@ -326,7 +346,9 @@ pub fn codegen_start(ast: &Ast) {
             .unwrap(),
         scopes: ast.scopes.clone(),
         types: ast.types.clone(),
-        indentation_level: 0
+        indentation_level: 0,
+        strings: ast.strings.clone(),
+        string_map: HashMap::new()
     };
     write_start(&mut g);
     ast.root_block.as_ref().unwrap().walk(&mut g);

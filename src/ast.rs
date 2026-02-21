@@ -1,8 +1,7 @@
 
-use std::rc::Rc;
+use std::{collections::HashMap, rc::Rc};
 
 use crate::tokenize::{is_operator, Token, TokenType};
-
 #[derive(Debug)]
 pub struct NumberNode {
     pub val: i64,
@@ -19,6 +18,8 @@ pub enum Operation {
     Sub,
     Mul,
     Div,
+    Or,
+    Equal,
     Assign,
     ArrayIndex
 }
@@ -39,6 +40,7 @@ pub enum Type {
     I16,
     I32,
     I64,
+    String,
     Pointer(Box<Type>),
     Array((usize, Box<Type>)),
     Slice(Box<Type>),
@@ -77,7 +79,7 @@ pub struct CallNode {
     pub args: Vec<Expression>
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StringLiteral {
     pub str: String
 }
@@ -149,6 +151,7 @@ pub struct Ast {
     index: usize,
     pub scopes: Vec<Scope>,
     pub types: Vec<Type>,
+    pub strings: HashMap<String, StringLiteral>
 }
 
 impl Ast {
@@ -186,12 +189,10 @@ fn op_to_string(op: Operation) -> &'static str {
         Operation::Mul => "*",
         Operation::Div => "/",
         Operation::Assign => "=",
+        Operation::Equal => "==",
+        Operation::Or => "||",
         Operation::ArrayIndex => panic!("Array indexing \"[]\" is not a binary operation")
     }
-}
-
-fn tt_to_string(tt: &TokenType) -> String {
-    format!("{:?}", tt)
 }
 
 // ============ PRINT AST FUNCTIONS ============
@@ -264,6 +265,7 @@ fn type_to_string(type_: &Type) -> String {
         Type::I16 => "i16".to_string(),
         Type::I32 => "i32".to_string(),
         Type::I64 => "i64".to_string(),
+        Type::String => "string".to_string(),
         Type::Array(arr) => {
             let type_str = type_to_string(&*arr.1);
             return format!("[{}; {}]", type_str, arr.0);
@@ -401,7 +403,9 @@ fn parse_primary(ast: &mut Ast, scope: usize) -> Expression {
             }
         },
         TokenType::DoubleQuote => {
-            let ret = Expression::String(StringLiteral { str: current_token.tok.clone() });
+            let string_literal = StringLiteral { str: current_token.tok.clone() };
+            ast.strings.insert(current_token.tok.clone(), string_literal.clone());
+            let ret = Expression::String(string_literal);
             ast.advance();
             return ret;
         },
@@ -437,6 +441,8 @@ fn get_op(token: &Token) -> Operation {
         TokenType::Slash => Operation::Div,
         TokenType::Star  => Operation::Mul,
         TokenType::Assign => Operation::Assign,
+        TokenType::LogicalOr  => Operation::Or,
+        TokenType::Equal => Operation::Equal,
         TokenType::OpenSquare => Operation::ArrayIndex,
         _ => panic!("Unknown Operator \"{}\"", token.tok)
     }
@@ -444,16 +450,18 @@ fn get_op(token: &Token) -> Operation {
 
 fn get_prec(op: TokenType) -> i32 {
     match op {
-        TokenType::OpenSquare => 6,
-        TokenType::Star | TokenType::Slash => 5,
-        TokenType::Plus | TokenType::Sub => 4,
+        TokenType::OpenSquare => 8,
+        TokenType::Star | TokenType::Slash => 7,
+        TokenType::Plus | TokenType::Sub => 6,
+        TokenType::Equal => 5,
+        TokenType::LogicalOr => 4,
         TokenType::Assign => 3,
         TokenType::SemiColon
         | TokenType::Comma
         | TokenType::CloseParen
         | TokenType::CloseSquare
         | TokenType::OpenCurly  => -1,
-        _ => panic!("Unknown Operator {:?}", op),
+        _ => panic!("Unknown Operator \"{:?}\"", op),
     }
 }
 
@@ -470,6 +478,7 @@ fn create_expr_with_prec(ast: &mut Ast, min_prec: i32, scope: usize) -> Expressi
             break;
         }
         let op_token = op_token.unwrap().clone();
+        println!("{:?}", op_token);
         let prec = get_prec(op_token.tt);
         if prec == -1 || prec < min_prec {
             break;
@@ -504,6 +513,7 @@ fn get_type(token: &Token) -> Type {
         "i16" => Type::I16,
         "i32" => Type::I32,
         "i64" => Type::I64,
+        "string" => Type::String,
         _     => panic!("Unrecognized type: \"{}\"", token.tok)
     }
 }
@@ -518,6 +528,7 @@ fn is_type(ast: &Ast, token: &Token) -> bool {
         "i16" => true,
         "i32" => true,
         "i64" => true,
+        "string" => true,
         _     => false // TODO: handle custom types
     }
 }
@@ -846,6 +857,7 @@ pub fn ast_start(tokens: Vec<Token>) -> Ast {
         index: 0,
         scopes: vec!(),
         types: vec!(),
+        strings: HashMap::new(),
     };
 
     ast.root_block = Some(create_block(&mut ast, true, None));
