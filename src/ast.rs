@@ -1,13 +1,13 @@
 
-use std::{collections::HashMap, rc::Rc};
+use std::{collections::HashMap};
 
-use crate::tokenize::{is_operator, Token, TokenType};
-#[derive(Debug)]
+use crate::tokenize::{self, is_operator, print_tokens, Token, TokenType};
+#[derive(Debug, Clone)]
 pub struct NumberNode {
     pub val: i64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VariableNode {
     pub symbol: Token,
 }
@@ -30,50 +30,58 @@ pub struct CustomType {
     pub fields: Vec<(Token, Type)>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum Attribute {
+    Extern,
+    Static,
+    // Immutable,
+}
+
 #[derive(Debug, Clone)]
 pub enum Type {
-    U8,
-    U16,
-    U32,
-    U64,
-    I8,
-    I16,
-    I32,
-    I64,
-    String,
+    U8(Vec<Attribute>),
+    U16(Vec<Attribute>),
+    U32(Vec<Attribute>),
+    U64(Vec<Attribute>),
+    I8(Vec<Attribute>),
+    I16(Vec<Attribute>),
+    I32(Vec<Attribute>),
+    I64(Vec<Attribute>),
+    String(Vec<Attribute>),
+    Proc(Vec<Attribute>, Vec<VariableDeclNode>, Vec<Box<Type>>),
     Pointer(Box<Type>),
     Array((usize, Box<Type>)),
     Slice(Box<Type>),
-    Custom(CustomType)
+    Custom(Vec<Attribute>, CustomType)
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct IndexNode {
     pub base: Box<Expression>,
     pub index: Box<Expression>
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BinaryOpNode {
     pub lhs: Box<Expression>,
     pub rhs: Box<Expression>,
     pub op: Operation
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ArrayLiteral {
     pub elements: Vec<Expression>,
     pub size: Option<usize>
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VariableDeclNode {
     pub symbol: Token,
     pub rhs: Option<Expression>,
     pub type_: Type
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CallNode {
     pub name: Token,
     pub args: Vec<Expression>
@@ -84,7 +92,7 @@ pub struct StringLiteral {
     pub str: String
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Expression {
     Index(IndexNode),
     Binary(BinaryOpNode),
@@ -137,7 +145,8 @@ pub struct ProcNode {
     pub name: Token,
     pub block: BlockNode,
     pub args: Vec<VariableDeclNode>,
-    pub return_type: Option<Type>
+    pub return_type: Option<Type>,
+    pub attributes: Vec<Attribute>
 }
 
 pub struct BlockNode {
@@ -257,20 +266,43 @@ fn print_expression_statement(expr_stmt: &ExpressionStatement, level: usize) {
 
 fn type_to_string(type_: &Type) -> String {
     match type_ {
-        Type::U8 => "u8".to_string(),
-        Type::U16 => "u16".to_string(),
-        Type::U32 => "u32".to_string(),
-        Type::U64 => "u64".to_string(),
-        Type::I8 => "i8".to_string(),
-        Type::I16 => "i16".to_string(),
-        Type::I32 => "i32".to_string(),
-        Type::I64 => "i64".to_string(),
-        Type::String => "string".to_string(),
+        Type::U8(_) => "u8".to_string(),
+        Type::U16(_) => "u16".to_string(),
+        Type::U32(_) => "u32".to_string(),
+        Type::U64(_) => "u64".to_string(),
+        Type::I8(_) => "i8".to_string(),
+        Type::I16(_) => "i16".to_string(),
+        Type::I32(_) => "i32".to_string(),
+        Type::I64(_) => "i64".to_string(),
+        Type::String(_) => "string".to_string(),
+        Type::Proc(attributes, args, return_type) => {
+            let mut str = String::new();
+            for attribute in attributes {
+                str.push_str(&format!("@{:?} ", attribute));
+            }
+            str.push_str("proc(");
+            for (i, arg) in args.iter().enumerate() {
+                str.push_str(&format!("{}", type_to_string(&arg.type_)));
+                if i != args.len() - 1 {
+                    str.push_str(", ")
+                }
+            }
+            str.push(')');
+
+            if return_type.len() > 0 {
+                str.push_str(" -> ");
+                for ret in return_type {
+                    str.push_str(&format!("{}", type_to_string(ret)));
+                }
+            }
+            
+            str
+        },
         Type::Array(arr) => {
             let type_str = type_to_string(&*arr.1);
             return format!("[{}; {}]", type_str, arr.0);
         },
-        Type::Custom(custom) => {
+        Type::Custom(_, custom) => {
             todo!("Not implemented yet")
         },
         Type::Pointer(ptr) => format!("{}{}", "*", type_to_string(&ptr)),
@@ -505,15 +537,15 @@ fn create_expr(ast: &mut Ast, scope: usize) -> Expression {
 
 fn get_type(token: &Token) -> Type {
     match token.tok.as_str() {
-        "u8"  => Type::U8,
-        "u16" => Type::U16,
-        "u32" => Type::U32,
-        "u64" => Type::U64,
-        "i8"  => Type::I8,
-        "i16" => Type::I16,
-        "i32" => Type::I32,
-        "i64" => Type::I64,
-        "string" => Type::String,
+        "u8"  => Type::U8(vec!()),
+        "u16" => Type::U16(vec!()),
+        "u32" => Type::U32(vec!()),
+        "u64" => Type::U64(vec!()),
+        "i8"  => Type::I8(vec!()),
+        "i16" => Type::I16(vec!()),
+        "i32" => Type::I32(vec!()),
+        "i64" => Type::I64(vec!()),
+        "string" => Type::String(vec!()),
         _     => panic!("Unrecognized type: \"{}\"", token.tok)
     }
 }
@@ -577,6 +609,8 @@ fn create_variable_declaration(ast: &mut Ast, scope: usize, name: Token) -> Vari
 }
 
 fn create_proc(ast: &mut Ast, parent_scope: usize, name: Token) -> ProcNode {
+    // let attributes = extract_attributes(ast);
+    // ast.match_token(TokenType::Proc);
     ast.advance(); // proc
     ast.advance(); // (
     ast.match_token(TokenType::OpenParen);
@@ -622,7 +656,8 @@ fn create_proc(ast: &mut Ast, parent_scope: usize, name: Token) -> ProcNode {
         name,
         block: proc_block,
         args,
-        return_type    
+        return_type,
+        attributes: vec!() // TODO: incredibly scuffed might have to redo proc ast
     }
 }
 
@@ -632,6 +667,29 @@ fn create_new_scope(ast: &mut Ast, parent_scope: Option<usize>) -> usize {
         id: ast.scopes.len()
     });
     return ast.scopes.len() - 1;
+}
+
+fn extract_attributes(ast: &mut Ast) -> Vec<Attribute> {
+    let mut ret = vec!();
+
+    loop {
+        let mut current_token = ast.get_current_token().unwrap();
+        if current_token.tt == TokenType::At {
+            ast.advance();
+            current_token = ast.get_current_token().unwrap();
+            match ast.get_current_token().unwrap().tok.as_str() {
+                "extern" => ret.push(Attribute::Extern),
+                "static" => ret.push(Attribute::Static),
+                _ => panic!("Attribute \"{}\" is not recognized", ast.get_current_token().unwrap().tok)
+            }
+            ast.advance();
+        } else {
+            break;
+        }
+    }
+    
+
+    ret
 }
 
 fn extract_type(ast: &mut Ast) -> Type {
@@ -696,11 +754,81 @@ fn extract_type(ast: &mut Ast) -> Type {
                         fields.push((name, r#type));
                     }
                     ast.match_token(TokenType::CloseCurly);
-                    return Type::Custom(CustomType { name: None, fields });
+                    return Type::Custom(vec!(), CustomType { name: None, fields });
                 },
                 _ => panic!("Unexpected type class"),
             }
+        },
+        TokenType::Proc => {
+            ast.match_token(TokenType::Proc);
+            ast.advance(); // proc
+            ast.advance(); // (
+            println!("{}", ast.get_current_token().unwrap().tok);
+            // ast.match_token(TokenType::CloseParen);
+            // TODO: handle the arguments here
+            // ast.advance();
+            let mut args = Vec::<VariableDeclNode>::new();
+            loop {
+                let mut current_token = ast.get_current_token().unwrap().clone();
+                if current_token.tt == TokenType::CloseParen {
+                    break;
+                } else if current_token.tt == TokenType::Comma {
+                    ast.advance();
+                    current_token = ast.get_current_token().unwrap().clone();
+                }
+                let symbol = current_token;
+                ast.advance();
+                ast.match_token(TokenType::Colon);
+                ast.advance();
+                let r#type = ast.get_current_token().unwrap();
+                args.push(VariableDeclNode {
+                    symbol: symbol.clone(),
+                    rhs: None,
+                    type_: extract_type(ast),
+                });
+                ast.advance();
+            }
+            // ast.match_token(TokenType::CloseParen);
+            // ast.advance();
+            // let mut return_type: Option<Type> = None;
+            let mut return_type = vec!();
+            if ast.get_peek().unwrap().tt == TokenType::Arrow {
+                ast.advance();
+                ast.advance();
+                return_type.push(Box::new(get_type(ast.get_current_token().unwrap())));
+                // ast.advance();
+            }
+            let peek = ast.get_peek().unwrap();
+            if peek.tt == TokenType::OpenCurly {
+                todo!("implement proc fully in extract_type?(maybe not tbh)");
+            } else if peek.tt == TokenType::SemiColon {
+                // a procedure definition (likely an extern)
+            } else {
+                panic!("Unexpected peek \"{}\"", peek.tok);
+            }
+
+            Type::Proc(vec!(), args, return_type)
         }
+        TokenType::At => {
+            // attribute
+            let attributes = extract_attributes(ast);
+            let mut r#type = extract_type(ast);
+            match &mut r#type {
+                Type::Proc(proc_attributes, _, _) => {
+                      for attribute in attributes {
+                          proc_attributes.push(attribute.clone());
+                      }
+                },
+                Type::Custom(custom_attributes, _) => {
+                      for attribute in attributes {
+                          custom_attributes.push(attribute.clone());
+                      }
+                }
+                _ => todo!("not implemented attributes for types outside of proc"),
+            }
+            // ast.match_token(TokenType::SemiColon);
+            r#type            
+        },
         _ => panic!("Unexpected token \"{}\" found during type extraction", current_token.tok)
     }
 }
@@ -774,7 +902,7 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                         ast.advance();
                         let mut new_type = extract_type(ast);
                         match &mut new_type {
-                            Type::Custom(custom) => custom.name = Some(name),
+                            Type::Custom(_, custom) => custom.name = Some(name),
                             _ => unreachable!()
                         }
                         ast.types.push(new_type);
@@ -833,7 +961,27 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                             create_if(ast, ast.scopes[block.scope].id))
                         )
                 ));
-            }
+            },
+            TokenType::Include => {
+                ast.advance();
+                let filepath = ast.get_current_token().unwrap().tok.clone();
+                let src = match std::fs::read_to_string(&filepath) {
+                    Ok(src) => src,
+                    Err(e) => panic!("Could not include \"{}\": ({})", filepath, e)
+                };
+                ast.advance();
+                ast.match_token(TokenType::SemiColon);
+                ast.advance();
+                let tokens = tokenize::tokenize_start(&src);
+                let mut index = ast.index;
+                for token in tokens {
+                    println!("{:?}", token);
+                    ast.tokens.insert(index, token);
+                    index += 1;
+                }
+                print_tokens(&ast.tokens);
+                ast.index -= 1; // since we advance at the end of the loop
+            },
             _ => todo!("Unexpected Token \"{:?}\":{}", current_token.tt, ast.index),
         }
 

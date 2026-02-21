@@ -1,9 +1,10 @@
 use crate::const_assert;
 
-const TOKEN_TYPE_COUNT: i32 = 46;
+const TOKEN_TYPE_COUNT: i32 = 47;
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum TokenType {
     Unknown,
+    At,
     Plus,
     Sub,
     Star,
@@ -77,9 +78,10 @@ fn is_whitespace(c: char) -> bool {
     }
 }
 
-const_assert!(TOKEN_TYPE_COUNT == 46, "Update: TOKEN_TYPE_COUNT has changed");
+const_assert!(TOKEN_TYPE_COUNT == 47, "Update: TOKEN_TYPE_COUNT has changed");
 fn is_delim(c: char) -> bool {
     match c {
+        '@' => true,
         '+' => true,
         '-' => true,
         '*' => true,
@@ -112,6 +114,7 @@ fn is_delim(c: char) -> bool {
 
 fn get_delim_tt(c: char) -> TokenType {
     match c {
+        '@' => TokenType::At,
         '+' => TokenType::Plus,
         '-' => TokenType::Sub,
         '*' => TokenType::Star,
@@ -140,7 +143,7 @@ fn get_delim_tt(c: char) -> TokenType {
     }
 }
 
-const_assert!(TOKEN_TYPE_COUNT == 46, "Update: TOKEN_TYPE_COUNT has changed");
+const_assert!(TOKEN_TYPE_COUNT == 47, "Update: TOKEN_TYPE_COUNT has changed");
 fn get_keyword_tt(str: &str) -> TokenType {
     match str {
         "for"     => TokenType::For,
@@ -158,7 +161,7 @@ fn get_keyword_tt(str: &str) -> TokenType {
     }
 }
 
-const_assert!(TOKEN_TYPE_COUNT == 46, "Update: TOKEN_TYPE_COUNT has changed");
+const_assert!(TOKEN_TYPE_COUNT == 47, "Update: TOKEN_TYPE_COUNT has changed");
 fn is_double_delim(c: char, p: char) -> bool {
     if c == ':' && p == '=' {
         true
@@ -181,7 +184,7 @@ fn is_double_delim(c: char, p: char) -> bool {
     }
 }
 
-const_assert!(TOKEN_TYPE_COUNT == 46, "Update: TOKEN_TYPE_COUNT has changed");
+const_assert!(TOKEN_TYPE_COUNT == 47, "Update: TOKEN_TYPE_COUNT has changed");
 fn get_double_delim_tt(c: char, p: char) -> TokenType {
     if c == ':' && p == '=' {
         TokenType::ShortAssign
@@ -325,6 +328,6 @@ pub fn tokenize_start(src: &str) -> Vec<Token> {
 
 pub fn print_tokens(tokens: &Vec<Token>) {
     for token in tokens {
-        println!("Token: {}[{:?}]({}:{})",token.tok, token.tt, token.x, token.y);
+        println!("Token: {} [{:?}]({}:{})",token.tok, token.tt, token.x, token.y);
     }
 }

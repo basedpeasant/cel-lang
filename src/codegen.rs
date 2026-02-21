@@ -57,17 +57,40 @@ impl Codegen for ProcNode {
     }
 }
 
+fn get_c_type_attribute(attribute: Attribute) -> String {
+    match attribute {
+        Attribute::Extern => "extern ".to_string(),
+        Attribute::Static => "static ".to_string(),
+        // _ => panic!("unsupported attribute: {:?}", attribute)
+    }
+}
+
 fn get_c_type(r#type: Type) -> (String, usize) {
     match r#type {
-        Type::U8 => ("unsigned char".to_string(), 0),
-        Type::U16 =>("unsigned short".to_string(), 0),
-        Type::U32 =>("unsigned int".to_string(), 0),
-        Type::U64 =>("unsigned long".to_string(), 0),
-        Type::I8 => ("char".to_string(), 0),
-        Type::I16 =>("short".to_string(), 0),
-        Type::I32 =>("int".to_string(), 0),
-        Type::I64 =>("long".to_string(), 0),
-        Type::String =>("string".to_string(), 0),
+        Type::U8(_) => ("unsigned char".to_string(), 0),
+        Type::U16(_) =>("unsigned short".to_string(), 0),
+        Type::U32(_) =>("unsigned int".to_string(), 0),
+        Type::U64(_) =>("unsigned long".to_string(), 0),
+        Type::I8(_) => ("char".to_string(), 0),
+        Type::I16(_) =>("short".to_string(), 0),
+        Type::I32(_) =>("int".to_string(), 0),
+        Type::I64(_) =>("long".to_string(), 0),
+        Type::String(_) =>("string".to_string(), 0),
+        Type::Proc(attributes, _args, returns) => {
+            assert!(attributes.len() > 0);
+            let mut str = String::new();
+            for attribute in attributes {
+                str.push_str(&get_c_type_attribute(attribute));
+            }
+            if returns.len() == 0 {
+                str.push_str("void");
+                return (str, 0)
+            }
+
+            let ctype = get_c_type(*returns[0].clone());
+            str.push_str(&ctype.0);
+            return (str, ctype.1);
+        }
         Type::Array(arr) => {
             let str = get_c_type(*arr.1);
             return (str.0, arr.0)
@@ -165,7 +188,17 @@ impl Codegen for VariableDeclNode {
                         }
                     }
                     g.file.write(b"}").unwrap();
-                }
+                },
+                Type::Proc(_attributes, args, _returns) => {
+                    g.file.write(b"(").unwrap();
+                    for (i, arg) in args.iter().enumerate() {
+                        g.file.write(get_c_type(arg.type_.clone()).0.as_bytes()).unwrap();
+                        if i != args.len() - 1 {
+                            g.file.write(b", ").unwrap();
+                        }
+                    }
+                    g.file.write(b")").unwrap();
+                },
                 _ => {}
             }
         }
@@ -267,12 +300,9 @@ fn print_indentations(g: &mut fs::File, indentation_level: u8) {
 
 fn write_start(g: &mut Generator) {
     g.file.write(r#"
-extern void exit(int code);
-extern int write(int fd, const char* buf, int count);
 extern int printf(const char* fmt, ...);
 void _start();
 void _cel_main();
-int writei(int fd, int number); // TODO: implement in Cel
 typedef struct {
     unsigned int len;
     const char* ptr;
@@ -282,7 +312,12 @@ typedef struct {
 
     for r#type in &g.types {
         match r#type {
-            Type::Custom(custom) => {
+            Type::Custom(attributes, custom) => {
+                let mut attribute_str = String::new();
+                for attribute in attributes {
+                    todo!("Need to think more about how attributes work for structs")
+                }
+                g.file.write(attribute_str.as_bytes()).unwrap();
                 g.file.write(b"typedef struct {\n").unwrap();
                 for field in &custom.fields {
                     print_indentations(&mut g.file, g.indentation_level + 1);
@@ -307,31 +342,10 @@ typedef struct {
 
     g.file.write(r#"
 
-// TODO: implement this in Cel; this is just for debugging/convenience
-int writei(int fd, int number) {
-    char rev_buf[20] = {0};
-    char buf[20] = {0};
-
-    int tmp = number;
-    int count = 0;
-    while (tmp != 0) {
-        rev_buf[count] = '0' + tmp % 10;
-        tmp /= 10;
-        count++;
-    }
-
-    for (int i = count; i >= 0; i--) {
-        buf[i] = rev_buf[count - i - 1];
-    }
-
-    write(1, buf, count);
-    return count;
-}
-
 int main()
 {
     _cel_main();
-    exit(0);
+    return 0;
 }
 
 "#.as_bytes()).unwrap();
