@@ -1,0 +1,18 @@
+fib: proc(n: i32) -> i32 {
+	if n == 0 {
+		return 0;
+	} else if n == 1 {
+		return 1;
+	} else {
+		return fib(n - 1) + fib(n - 2);
+	}
+}
+
+main: proc() {
+	printf("fib(0) = %d\n".ptr, fib(0));
+	printf("fib(1) = %d\n".ptr, fib(1));
+	printf("fib(2) = %d\n".ptr, fib(2));
+	printf("fib(3) = %d\n".ptr, fib(3));
+	printf("fib(4) = %d\n".ptr, fib(4));
+	printf("fib(5) = %d\n".ptr, fib(5));
+}

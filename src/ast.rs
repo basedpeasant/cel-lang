@@ -24,6 +24,7 @@ pub enum Operation {
     Lt,
     Lte,
     Equal,
+    Reference,
     Assign,
     ArrayIndex,
     Access
@@ -113,8 +114,10 @@ pub enum Expression {
     Call(CallNode),
     String(StringLiteral),
     Array(ArrayLiteral),
-    Struct(StructDeclarationNode)
+    Struct(StructDeclarationNode),
+    Reference(Box<Expression>)
 }
+
 pub struct IfNode {
     pub block: BlockNode,
     pub condition: Option<Expression>,
@@ -122,8 +125,14 @@ pub struct IfNode {
     pub is_else: bool,
 }
 
+pub struct ForNode {
+    pub block: BlockNode,
+    pub condition: Expression,
+}
+
 pub enum ExpressionStatementWithBlock {
     If(IfNode),
+    For(ForNode)
 }
 
 pub enum ExpressionStatement {
@@ -144,10 +153,11 @@ pub enum Statement {
     Declaration(DeclNode)
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Scope {
     pub parent_scope: Option<usize>,
-    pub id: usize
+    pub id: usize,
+    pub map: HashMap<String, VariableDeclNode>
 }
 
 pub struct ReturnNode {
@@ -217,6 +227,7 @@ fn op_to_string(op: Operation) -> &'static str {
         Operation::Lte => "<=",
         Operation::Lt => "<",
         Operation::Or => "||",
+        Operation::Reference => "&",
         Operation::Access => ".",
         Operation::ArrayIndex => panic!("Array indexing \"[]\" is not a binary operation")
     }
@@ -399,6 +410,10 @@ fn print_expression(expr: &Expression, level: usize) {
             for expr in &struct_.exprs {
                print_expression(&expr, level + 2); 
             }
+        },
+        Expression::Reference(expr) => {
+            println!("{}Reference:", indent(level));
+            print_expression(expr, level);
         }
     }
 }
@@ -487,6 +502,10 @@ fn parse_primary(ast: &mut Ast, scope: usize) -> Expression {
             let ret = Expression::Array(arr);
             return ret;
         },
+        TokenType::Ampersand => {
+            ast.advance();
+            return Expression::Reference(Box::new(parse_primary(ast, scope)));
+        }
         _ => panic!("(Parse Primary) Unexpected Token \"{}\"", current_token.tok)
     }
 }
@@ -696,12 +715,12 @@ fn create_proc(ast: &mut Ast, parent_scope: usize, name: Token) -> ProcNode {
         ast.advance();
         ast.match_token(TokenType::Colon);
         ast.advance();
-        let r#type = ast.get_current_token().unwrap();
-        args.push(VariableDeclNode {
+        let var_decl = VariableDeclNode {
             symbol: symbol.clone(),
             rhs: None,
-            type_: get_type(r#type),
-        });
+            type_: extract_type(ast),
+        };
+        args.push(var_decl);
         ast.advance();
     }
     ast.match_token(TokenType::CloseParen);
@@ -716,6 +735,10 @@ fn create_proc(ast: &mut Ast, parent_scope: usize, name: Token) -> ProcNode {
     ast.advance(); // {
         // TODO: handle body here
     let proc_block = create_block(ast, false, Some(parent_scope));
+    for arg in &args {
+        assert!(!ast.scopes[proc_block.scope].map.contains_key(&arg.symbol.tok), "symbol \"{}\" already exists in block", arg.symbol.tok);
+        ast.scopes[proc_block.scope].map.insert(arg.symbol.tok.clone(), arg.clone());
+    }
     ast.match_token(TokenType::CloseCurly);
     // ast.advance(); // }
 
@@ -731,7 +754,8 @@ fn create_proc(ast: &mut Ast, parent_scope: usize, name: Token) -> ProcNode {
 fn create_new_scope(ast: &mut Ast, parent_scope: Option<usize>) -> usize {
     ast.scopes.push(Scope {
         parent_scope,
-        id: ast.scopes.len()
+        id: ast.scopes.len(),
+        map: HashMap::new()
     });
     return ast.scopes.len() - 1;
 }
@@ -848,11 +872,12 @@ fn extract_type(ast: &mut Ast) -> Type {
                 ast.match_token(TokenType::Colon);
                 ast.advance();
                 let r#type = ast.get_current_token().unwrap();
-                args.push(VariableDeclNode {
+                let var_decl = VariableDeclNode {
                     symbol: symbol.clone(),
                     rhs: None,
                     type_: extract_type(ast),
-                });
+                };
+                args.push(var_decl);
                 ast.advance();
             }
             // ast.match_token(TokenType::CloseParen);
@@ -943,6 +968,25 @@ fn create_if(ast: &mut Ast, parent_scope: usize) -> IfNode {
     };
 }
 
+fn create_for(ast: &mut Ast, parent_scope: usize) -> ForNode {
+    let current_token = ast.get_current_token().unwrap().clone();
+    let peek = ast.get_peek().unwrap().clone();
+    let mut skip_condition = false;
+    let mut is_else = false;
+    ast.match_token(TokenType::For);
+    ast.advance();
+    let condition = create_expr(ast, parent_scope);
+    ast.match_token(TokenType::OpenCurly);
+    ast.advance();
+    let for_block = create_block(ast, false, Some(parent_scope));
+    ast.match_token(TokenType::CloseCurly);
+
+    return ForNode {
+        block: for_block,
+        condition,
+    };
+}
+
 fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> BlockNode {
     let mut block = BlockNode{
         statements: vec!(),
@@ -976,6 +1020,7 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                     } else {
                         ast.advance();
                         let variable_decl = create_variable_declaration(ast, block.scope, name);
+                        ast.scopes[block.scope].map.insert(variable_decl.symbol.tok.clone(), variable_decl.clone());
                         block.statements.push(Statement::Declaration(DeclNode::Var(variable_decl)));
                     }
                 } else if is_operator(&peek.tt) || peek.tt == TokenType::OpenParen {
@@ -1011,17 +1056,6 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
             },
             TokenType::If => {
                 assert!(!root, "if statements are not allowed in the top level scope");
-                // ast.advance();
-                // let condition = create_expr(ast, ast.scopes[block.scope].id);
-                // ast.match_token(TokenType::OpenCurly);
-                // ast.advance();
-                // let if_block = create_block(ast, false, Some(ast.scopes[block.scope].id));
-                // ast.match_token(TokenType::CloseCurly);
-                // let peek = ast.get_peek().unwrap();
-                // if peek.tt == TokenType::Else {
-                //     ast.advance();
-                //     ast.advance();
-                // }
                 block.statements.push(Statement::ExpressionStatement(
                     ExpressionStatement::ExpressionWithBlock(
                         ExpressionStatementWithBlock::If(
@@ -1049,6 +1083,15 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                 print_tokens(&ast.tokens);
                 ast.index -= 1; // since we advance at the end of the loop
             },
+            TokenType::For => {
+                assert!(!root, "for loops are not allowed in the top level scope");
+                block.statements.push(Statement::ExpressionStatement(
+                    ExpressionStatement::ExpressionWithBlock(
+                        ExpressionStatementWithBlock::For(
+                            create_for(ast, ast.scopes[block.scope].id))
+                        )
+                ));
+            }
             _ => todo!("Unexpected Token \"{:?}\":{}", current_token.tt, ast.index),
         }
 

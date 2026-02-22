@@ -1,9 +1,10 @@
 
 use crate::ast::*;
-use std::{arch::x86_64::_MM_ROUND_TOWARD_ZERO, collections::HashMap, fs, io::Write};
+use std::{collections::HashMap, fs, io::Write};
 
 struct Generator {
     file: fs::File,
+    current_scope: usize,
     scopes: Vec<Scope>,
     types: Vec<Type>,
     indentation_level: u8,
@@ -11,19 +12,25 @@ struct Generator {
     string_map: HashMap<String, String>
 }
 
-trait Codegen {
-    fn walk(&self, g: &mut Generator);
-}
+impl Generator {
+    fn lookup_var(&self, name: &str) -> Option<&VariableDeclNode> {
+        let mut scope_id = self.current_scope;
 
-impl Codegen for Statement {
-    fn walk(&self, g: &mut Generator) {
-        match self {
-            Self::ExpressionStatement(expr) => {},
-            Self::Declaration(decl) => {
-                
+        loop {
+            if let Some(decl) = self.scopes[scope_id].map.get(name) {
+                return Some(decl);
+            }
+
+            match self.scopes[scope_id].parent_scope {
+                Some(parent) => scope_id = parent,
+                None => return None,
             }
         }
-    } 
+    }
+}
+
+trait Codegen {
+    fn walk(&self, g: &mut Generator);
 }
 
 impl Codegen for ProcNode {
@@ -108,7 +115,7 @@ impl Codegen for Expression {
         match self {
             Expression::Binary(bin) => {
                 bin.lhs.walk(g);
-                let _ = match bin.op {
+                match bin.op {
                     Operation::Add => g.file.write(b" + ").unwrap(),
                     Operation::Div => g.file.write(b" / ").unwrap(),
                     Operation::Sub => g.file.write(b" - ").unwrap(),
@@ -116,11 +123,34 @@ impl Codegen for Expression {
                     Operation::Assign => g.file.write(b" = ").unwrap(),
                     Operation::Or => g.file.write(b" || ").unwrap(),
                     Operation::Equal => g.file.write(b" == ").unwrap(),
-                    Operation::Gte => g.file.write(b">=").unwrap(),
-                    Operation::Gt => g.file.write(b">").unwrap(),
-                    Operation::Lte => g.file.write(b"<=").unwrap(),
-                    Operation::Lt => g.file.write(b"<").unwrap(),
-                    Operation::Access => g.file.write(b".").unwrap(),
+                    Operation::Gte => g.file.write(b" >= ").unwrap(),
+                    Operation::Gt => g.file.write(b" > ").unwrap(),
+                    Operation::Lte => g.file.write(b" <= ").unwrap(),
+                    Operation::Lt => g.file.write(b" < ").unwrap(),
+                    Operation::Access => {
+                        let mut symbol: Option<String> = None;
+                        let mut skip = false;
+                        match bin.lhs.as_ref() {
+                            Expression::Variable(var) => symbol = Some(var.symbol.tok.clone()),
+                            Expression::String(_) => {
+                                g.file.write(b".").unwrap();
+                                skip = true;
+                            },
+                            _ => panic!("Can only apply member access to variables")
+                        }
+                        if !skip {
+                            let var_decl = g.lookup_var(&symbol.as_ref().unwrap())
+                                .unwrap_or_else(|| panic!("symbol \"{}\" could not be found", symbol.unwrap()));
+
+                            match var_decl.type_ {
+                                Type::Pointer(_) => g.file.write(b"->").unwrap(),
+                                _ => g.file.write(b".").unwrap(),
+                            }
+                        } else {
+                            0 // added just to satisfy rust error lol
+                        }
+                    },
+                    Operation::Reference => g.file.write(b"&").unwrap(),
                     Operation::ArrayIndex => unreachable!("Array index should not be in a binary operation")
                 };
                 bin.rhs.walk(g);
@@ -177,6 +207,10 @@ impl Codegen for Expression {
                 }
                 
                 g.file.write(b"}").unwrap();
+            },
+            Expression::Reference(expr) => {
+                g.file.write(b"&").unwrap();
+                expr.walk(g);
             }
         } 
     }
@@ -257,16 +291,30 @@ impl Codegen for IfNode {
     }
 }
 
+impl Codegen for ForNode {
+    fn walk(&self, g: &mut Generator) {
+        g.file.write(b"while (").unwrap();
+        self.condition.walk(g);
+        g.file.write(b") {\n").unwrap();
+        self.block.walk(g);
+        print_indentations(&mut g.file, g.indentation_level);
+        g.file.write(b"}\n").unwrap();
+    }
+}
+
 impl Codegen for ExpressionStatementWithBlock {
     fn walk(&self, g: &mut Generator) {
         match self {
             ExpressionStatementWithBlock::If(if_node) => if_node.walk(g),
+            ExpressionStatementWithBlock::For(for_node) => for_node.walk(g),
         }
     }
 }
 
 impl Codegen for BlockNode {
     fn walk(&self, g: &mut Generator) {
+        let save = g.current_scope;
+        g.current_scope = self.scope;
         g.indentation_level += 1;
         for n in &self.statements {
             if self.scope != 0 {
@@ -304,9 +352,9 @@ impl Codegen for BlockNode {
                 },
                 _ => todo!("not implemented yet")
             }
-            n.walk(g);
         }
-        g.indentation_level -= 1;        
+        g.indentation_level -= 1;
+        g.current_scope = save;      
     }
 }
 
@@ -331,8 +379,8 @@ typedef struct {
     for r#type in &g.types {
         match r#type {
             Type::Custom(attributes, custom) => {
-                let mut attribute_str = String::new();
-                for attribute in attributes {
+                let attribute_str = String::new();
+                for _ in attributes {
                     todo!("Need to think more about how attributes work for structs")
                 }
                 g.file.write(attribute_str.as_bytes()).unwrap();
@@ -353,7 +401,7 @@ typedef struct {
         let str = str.0;
         let len = str.len();
         let mapped_name = format!("s{}", count);
-        g.file.write(format!("static string {} = {{ {}, \"{}\" }};", mapped_name, len, str).as_bytes()).unwrap();
+        g.file.write(format!("static string {} = {{ {}, \"{}\" }};\n", mapped_name, len, str).as_bytes()).unwrap();
         g.string_map.insert(str.clone(), mapped_name);
         count += 1;
     }
@@ -376,6 +424,7 @@ pub fn codegen_start(ast: &Ast) {
             .create(true)
             .open("out.c")
             .unwrap(),
+        current_scope: ast.root_block.as_ref().unwrap().scope,
         scopes: ast.scopes.clone(),
         types: ast.types.clone(),
         indentation_level: 0,

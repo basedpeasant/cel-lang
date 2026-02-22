@@ -2,54 +2,45 @@
 import core.args;
 import core.ops;
 
-HEIGHT u32 :: 800;
-WIDTH  u32 :: 600;
-a i32(static) :: 3;
-b i32(static) :: 6;
 
-Array<T any> type :: struct {
-    items []T;
-    len i32;
+
+HEIGHT: @const u32 = 800;
+WIDTH:  @const u32 = 600;
+a: @static @const i32 = 3;
+b: @static @const i32 = 6;
+
+
+Array<T any>: type struct {
+    items: []T;
+    len: i32;
 }
 
-Vec3 type :: struct {
-    x i32;
-    y i32;
-    z i32;
+Vec3: type struct {
+    x: i32;
+    y: i32;
+    z: i32;
 }
 
-Num<T any> type :: struct {
-    inner T;
+Num<T any>: type struct {
+    inner: T;
 }
 
-impl Add<T any> for Num<T> {
-    add operator :: (lhs Num<T>, rhs Num<T>) -> Num<T> {
-        return Num{lhs.inner + rhs.inner};
-    }
-}
-
-impl Add for Vec3 {
-    add operator :: (lhs Vec3, rhs Vec3) -> Vec3 {
-        return Vec3{lhs.x + rhs.x, lhs.y + rhs.y, lhs.z + rhs.z};
-    }
-}
-
-sum3 proc :: (a &Vec3, b &Vec3) -> Vec3 {
+sum3: proc(a: &Vec3, b: &Vec3) -> Vec3 {
     return a + b;
 }
 
-main proc :: () {
+main: proc() {
     if len(args) != 2 {
         println("Usage: program FILENAME");
         exit(0);
     }
-	test i32(immutable) := a + b;
-    filename string := args[1];
-    src string := read_to_string(filename);
+	test: @immutable i32 = a + b;
+    filename: string = args[1];
+    src: string = read_to_string(filename);
 
-    a Vec3 := {1, 2, 3};
-    b Vec3 := {4, 5, 6};
-    c Vec3 := sum3(&a, &b);
+    a: Vec3 = {1, 2, 3};
+    b: Vec3 = {4, 5, 6};
+    c: Vec3 = sum3(&a, &b);
     println("%:%:%", c.x, c.y, c.z);
 
 }
