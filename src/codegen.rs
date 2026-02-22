@@ -1,6 +1,6 @@
 
 use crate::ast::*;
-use std::{collections::HashMap, fs, io::Write};
+use std::{arch::x86_64::_MM_ROUND_TOWARD_ZERO, collections::HashMap, fs, io::Write};
 
 struct Generator {
     file: fs::File,
@@ -67,6 +67,7 @@ fn get_c_type_attribute(attribute: Attribute) -> String {
 
 fn get_c_type(r#type: Type) -> (String, usize) {
     match r#type {
+        Type::VoidPtr(_) => ("void*".to_string(), 0),
         Type::U8(_) => ("unsigned char".to_string(), 0),
         Type::U16(_) =>("unsigned short".to_string(), 0),
         Type::U32(_) =>("unsigned int".to_string(), 0),
@@ -96,6 +97,7 @@ fn get_c_type(r#type: Type) -> (String, usize) {
             return (str.0, arr.0)
         },
         Type::Pointer(ptr) => (format!("{}{}", get_c_type(ptr.as_ref().clone()).0, "*"), 0),
+        Type::Custom(_, custom) => (custom.name.unwrap().tok, 0),
         _ => todo!("Type not implemented yet")
     }
 }
@@ -114,6 +116,10 @@ impl Codegen for Expression {
                     Operation::Assign => g.file.write(b" = ").unwrap(),
                     Operation::Or => g.file.write(b" || ").unwrap(),
                     Operation::Equal => g.file.write(b" == ").unwrap(),
+                    Operation::Gte => g.file.write(b">=").unwrap(),
+                    Operation::Gt => g.file.write(b">").unwrap(),
+                    Operation::Lte => g.file.write(b"<=").unwrap(),
+                    Operation::Lt => g.file.write(b"<").unwrap(),
                     Operation::Access => g.file.write(b".").unwrap(),
                     Operation::ArrayIndex => unreachable!("Array index should not be in a binary operation")
                 };
@@ -160,6 +166,17 @@ impl Codegen for Expression {
                 g.file.write(b"[").unwrap();
                 index.index.walk(g);
                 g.file.write(b"]").unwrap();
+            },
+            Expression::Struct(struct_declaration) => {
+                g.file.write(b"{").unwrap();
+                for (i, expr) in struct_declaration.exprs.iter().enumerate() {
+                    expr.walk(g);
+                    if i != struct_declaration.exprs.len() - 1 {
+                        g.file.write(b", ").unwrap();
+                    }
+                }
+                
+                g.file.write(b"}").unwrap();
             }
         } 
     }
