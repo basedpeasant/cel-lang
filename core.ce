@@ -1,0 +1,100 @@
+
+write: @extern proc(fd: i32, buf: *u8, count: i32) -> i32;
+exit: @extern proc(code: i32);
+
+calloc: @extern proc(n: u64, size: u64) -> void_ptr;
+realloc: @extern proc(ptr: void_ptr, size: u64) -> void_ptr;
+free: @extern proc(ptr: void_ptr);
+memset: @extern proc(ptr: void_ptr, c: i32, n: u64) -> void_ptr;
+read: @extern proc(fd: i32, buf: void_ptr, count: u32) -> i32;
+open: @extern proc(pathname: *u8, flags: i32, mode: u32) -> i32;
+close: @extern proc(fd: i32) -> i32;
+
+false: i32 = 0;
+true: i32 = 1;
+O_RDONLY: i32 = 0;
+O_CREAT: i32 = 64;
+
+read_file_to_string: proc(filename: string) -> string {
+	sb: String_Builder;
+	fd: i32 = open(filename.ptr, O_RDONLY, 0);
+	c: [1]u8;
+	len: i32 = 0;
+	bytes_read: i32 = read(fd, &c, sizeof(c));
+	if bytes_read > 0 {
+		sb_push(&sb, c[0]);
+		len = len + 1;
+	}
+	for bytes_read > 0 {
+		bytes_read = read(fd, &c, sizeof(c));
+		sb_push(&sb, c[0]);
+		len = len + 1;
+	}
+	ret: string = string{ len, sb.chars };
+	close(fd);
+	return ret;
+}
+
+fgetc: proc(fd: i32) -> u8 {
+	c: [1]u8;
+	bytes_read: i32 = read(fd, &c, sizeof(c));
+	if bytes_read > 0 {
+		return c[0];
+	} else {
+		return 0;
+	}
+}
+
+putc: proc(c: u8) {
+	buf: [1]u8 = [c];
+	write(1, buf, 1);
+}
+
+ARRAY_INITIAL_CAPACITY: u32 = 10;
+
+Array: type struct {
+    length: u32,
+    capacity: u32,
+    items: void_ptr
+}
+
+String_Builder: type struct {
+    length: u32,
+    capacity: u32,
+    chars: *u8
+}
+
+SB_INITIAL_CAPACITY: u32 = 10;
+
+sb_push: proc(sb: *String_Builder, c: u8) {
+    if sb.length + 1 >= sb.capacity {
+        new_capacity: u32;
+        if sb.capacity == 0 {
+            new_capacity = SB_INITIAL_CAPACITY;
+        } else {
+            new_capacity = sb.capacity * 2;
+        }
+        p: *u8 = realloc(sb.chars, new_capacity * sizeof(char));
+        if p == 0 {
+            printf("Allocation failed\n".ptr);
+            exit(1);
+        }
+        memset(p + sb.length, 0, sb.capacity);
+        sb.chars = p;
+        sb.capacity = new_capacity;
+    }
+    sb.chars[sb.length] = c;
+    sb.chars[sb.length + 1] = 0;
+    sb.length = sb.length + 1;
+}
+
+sb_to_string: proc(sb: *String_Builder, c: u8) -> string {
+	ptr: *u8;
+    ptr = calloc(sb.length + 1, sizeof(char));
+    for i: i32 = 0; i < sb.length; i = i + 1 {
+        ptr[i] = sb.chars[i];
+	}
+    ptr[sb.length] = 0;
+    ret : string = string{ sb.length, ptr };
+	return ret;
+}
