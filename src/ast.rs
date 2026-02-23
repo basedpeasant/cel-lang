@@ -118,6 +118,7 @@ pub enum Expression {
     Reference(Box<Expression>)
 }
 
+#[derive(Clone)]
 pub struct IfNode {
     pub block: BlockNode,
     pub condition: Option<Expression>,
@@ -125,16 +126,22 @@ pub struct IfNode {
     pub is_else: bool,
 }
 
+#[derive(Clone)]
 pub struct ForNode {
     pub block: BlockNode,
+    pub is_classic_for: bool,
+    pub init: Option<Box<Statement>>,
     pub condition: Expression,
+    pub post: Option<Expression>,
 }
 
+#[derive(Clone)]
 pub enum ExpressionStatementWithBlock {
     If(IfNode),
     For(ForNode)
 }
 
+#[derive(Clone)]
 pub enum ExpressionStatement {
     Return(ReturnNode),
     Expression(Expression),
@@ -142,12 +149,14 @@ pub enum ExpressionStatement {
     ExpressionWithBlock(ExpressionStatementWithBlock),
 }
 
+#[derive(Clone)]
 pub enum DeclNode {
     //TODO:
     Proc(ProcNode),
     Var(VariableDeclNode)
 }
 
+#[derive(Clone)]
 pub enum Statement {
     ExpressionStatement(ExpressionStatement),
     Declaration(DeclNode)
@@ -160,10 +169,20 @@ pub struct Scope {
     pub map: HashMap<String, VariableDeclNode>
 }
 
+#[derive(Clone)]
 pub struct ReturnNode {
     pub expr: Expression
 }
 
+#[derive(Debug, Clone)]
+pub struct ProcNodeHeader {
+    pub name: Token,
+    pub args: Vec<VariableDeclNode>,
+    pub return_type: Option<Type>,
+    pub attributes: Vec<Attribute>
+}
+
+#[derive(Clone)]
 pub struct ProcNode {
     pub name: Token,
     pub block: BlockNode,
@@ -172,6 +191,7 @@ pub struct ProcNode {
     pub attributes: Vec<Attribute>
 }
 
+#[derive(Clone)]
 pub struct BlockNode {
     pub statements: Vec<Statement>,
     pub scope: usize,
@@ -183,7 +203,8 @@ pub struct Ast {
     index: usize,
     pub scopes: Vec<Scope>,
     pub types: Vec<Type>,
-    pub strings: HashMap<String, StringLiteral>
+    pub strings: HashMap<String, StringLiteral>,
+    pub procs: Vec<ProcNodeHeader>
 }
 
 impl Ast {
@@ -506,7 +527,7 @@ fn parse_primary(ast: &mut Ast, scope: usize) -> Expression {
             ast.advance();
             return Expression::Reference(Box::new(parse_primary(ast, scope)));
         }
-        _ => panic!("(Parse Primary) Unexpected Token \"{}\"", current_token.tok)
+        _ => panic!("(Parse Primary) Unexpected Token \"{:?}\"", current_token)
     }
 }
 
@@ -622,7 +643,7 @@ fn is_type(ast: &Ast, token: &Token) -> bool {
     }
 }
 
-fn create_variable_declaration(ast: &mut Ast, scope: usize, name: Token) -> VariableDeclNode {
+fn create_variable_declaration(ast: &mut Ast, scope: usize, name: Token, skip_scope: bool) -> VariableDeclNode {
     // let name = ast.get_current_token().unwrap().clone();
     let r#type: Type = extract_type(ast);
     // let current_token = ast.get_current_token().unwrap();
@@ -686,12 +707,20 @@ fn create_variable_declaration(ast: &mut Ast, scope: usize, name: Token) -> Vari
             rhs = Some(Expression::Struct(StructDeclarationNode { name: None, exprs }));
         }
     }
-    
-    VariableDeclNode {
+
+    let var_decl = VariableDeclNode {
         symbol: name.clone(),
         rhs,
         type_: r#type,
+    };
+
+    if !skip_scope {
+        // we will skip scope because it gets added after parsing the for loop block
+        // into the for loop's scope
+        ast.scopes[scope].map.insert(name.clone().tok, var_decl.clone());
     }
+
+    return var_decl;
 }
 
 fn create_proc(ast: &mut Ast, parent_scope: usize, name: Token) -> ProcNode {
@@ -742,6 +771,7 @@ fn create_proc(ast: &mut Ast, parent_scope: usize, name: Token) -> ProcNode {
     ast.match_token(TokenType::CloseCurly);
     // ast.advance(); // }
 
+    ast.procs.push(ProcNodeHeader { name: name.clone(), args: args.clone(), return_type: return_type.clone(), attributes: vec!() });
     ProcNode {
         name,
         block: proc_block,
@@ -854,7 +884,6 @@ fn extract_type(ast: &mut Ast) -> Type {
             ast.match_token(TokenType::Proc);
             ast.advance(); // proc
             ast.advance(); // (
-            println!("{}", ast.get_current_token().unwrap().tok);
             // ast.match_token(TokenType::CloseParen);
             // TODO: handle the arguments here
             // ast.advance();
@@ -969,22 +998,59 @@ fn create_if(ast: &mut Ast, parent_scope: usize) -> IfNode {
 }
 
 fn create_for(ast: &mut Ast, parent_scope: usize) -> ForNode {
-    let current_token = ast.get_current_token().unwrap().clone();
-    let peek = ast.get_peek().unwrap().clone();
-    let mut skip_condition = false;
-    let mut is_else = false;
+    // TODO: implement other kinds of for loops
     ast.match_token(TokenType::For);
     ast.advance();
-    let condition = create_expr(ast, parent_scope);
-    ast.match_token(TokenType::OpenCurly);
-    ast.advance();
-    let for_block = create_block(ast, false, Some(parent_scope));
-    ast.match_token(TokenType::CloseCurly);
+    let current_token = ast.get_current_token().unwrap().clone();
+    let peek = ast.get_peek().unwrap().clone();
 
-    return ForNode {
-        block: for_block,
-        condition,
-    };
+    // NOTE: this won't actually be that great at differentiating for loop types but
+    // it'll do for now
+    if peek.tt == TokenType::Colon {
+        // assume its a classic for loop
+        let name = current_token.clone();
+        ast.advance();
+        ast.advance();
+        let variable_decl = create_variable_declaration(ast, 69, name, true);
+        // ast.scopes[block.scope].map.insert(variable_decl.symbol.tok.clone(), variable_decl.clone());
+        ast.match_token(TokenType::SemiColon);
+        ast.advance();
+        let condition;
+        if ast.get_current_token().unwrap().tt != TokenType::SemiColon {
+            condition = create_expr(ast, parent_scope);
+            ast.match_token(TokenType::SemiColon);
+            ast.advance();
+        } else {
+            todo!("if the person skips the condition, not handled yet")
+        }
+        let post = create_expr(ast, parent_scope);
+        ast.match_token(TokenType::OpenCurly);
+        ast.advance();
+
+        let for_block = create_block(ast, false, Some(parent_scope));
+        ast.match_token(TokenType::CloseCurly);
+        return ForNode {
+            block: for_block,
+            is_classic_for: true,
+            init: Some(Box::new(Statement::Declaration(DeclNode::Var(variable_decl)))),
+            condition,
+            post: Some(post)
+        };
+    } else {
+        let condition = create_expr(ast, parent_scope);
+        ast.match_token(TokenType::OpenCurly);
+        ast.advance();
+        let for_block = create_block(ast, false, Some(parent_scope));
+        ast.match_token(TokenType::CloseCurly);
+
+        return ForNode {
+            block: for_block,
+            is_classic_for: false,
+            init: None,
+            condition,
+            post: None
+        };
+    }
 }
 
 fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> BlockNode {
@@ -1019,7 +1085,7 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                         ast.types.push(new_type);
                     } else {
                         ast.advance();
-                        let variable_decl = create_variable_declaration(ast, block.scope, name);
+                        let variable_decl = create_variable_declaration(ast, block.scope, name, false);
                         ast.scopes[block.scope].map.insert(variable_decl.symbol.tok.clone(), variable_decl.clone());
                         block.statements.push(Statement::Declaration(DeclNode::Var(variable_decl)));
                     }
@@ -1092,7 +1158,7 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                         )
                 ));
             }
-            _ => todo!("Unexpected Token \"{:?}\":{}", current_token.tt, ast.index),
+            _ => todo!("Unexpected Token \"{:?}\":{}", current_token, ast.index),
         }
 
         ast.advance();
@@ -1116,6 +1182,7 @@ pub fn ast_start(tokens: Vec<Token>) -> Ast {
         scopes: vec!(),
         types: vec!(),
         strings: HashMap::new(),
+        procs: vec!()
     };
 
     ast.root_block = Some(create_block(&mut ast, true, None));

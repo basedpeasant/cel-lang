@@ -6,6 +6,7 @@ struct Generator {
     file: fs::File,
     current_scope: usize,
     scopes: Vec<Scope>,
+    procs: Vec<ProcNodeHeader>,
     types: Vec<Type>,
     indentation_level: u8,
     strings: HashMap<String, StringLiteral>,
@@ -251,6 +252,9 @@ impl Codegen for VariableDeclNode {
                     }
                     g.file.write(b")").unwrap();
                 },
+                Type::Custom(_attributes, _type) => {
+                    g.file.write(b" = {0}").unwrap();
+                },
                 _ => {}
             }
         }
@@ -293,9 +297,29 @@ impl Codegen for IfNode {
 
 impl Codegen for ForNode {
     fn walk(&self, g: &mut Generator) {
-        g.file.write(b"while (").unwrap();
-        self.condition.walk(g);
-        g.file.write(b") {\n").unwrap();
+        if !self.is_classic_for {
+            g.file.write(b"while (").unwrap();
+            self.condition.walk(g);
+            g.file.write(b") {\n").unwrap();
+        } else {
+            g.file.write(b"for (").unwrap();
+            match (*self.init.clone().unwrap()).clone() {
+                Statement::Declaration(decl) => {
+                    match decl {
+                        DeclNode::Var(var) => {
+                            var.walk(g);
+                        }
+                        _ => panic!("You can only declare variables in the pre condition")
+                    }
+                }
+                _ => panic!("Unexpected")
+            }
+            g.file.write(b";").unwrap();
+            self.condition.walk(g);
+            g.file.write(b";").unwrap();
+            self.post.clone().unwrap().walk(g);
+            g.file.write(b") {\n").unwrap();
+        }
         self.block.walk(g);
         print_indentations(&mut g.file, g.indentation_level);
         g.file.write(b"}\n").unwrap();
@@ -370,7 +394,7 @@ extern int printf(const char* fmt, ...);
 void _start();
 void _cel_main();
 typedef struct {
-    unsigned int len;
+    unsigned int length;
     const char* ptr;
 } string;
 
@@ -394,6 +418,30 @@ typedef struct {
             },
             _ => panic!("unexpected type in code generation, only custom types should be here")
         }
+    }
+
+    for i in 0..g.procs.len() {
+        let proc = g.procs[i].clone();
+        if proc.name.tok == "main" {
+            continue;
+        }
+
+        if proc.return_type.is_none() {
+            g.file.write("void ".as_bytes()).unwrap();
+        } else {
+            let c_type = get_c_type(proc.return_type.as_ref().unwrap().clone()).0;
+            g.file.write(format!("{} ", c_type).as_bytes()).unwrap();
+        }
+        g.file.write(proc.name.tok.as_bytes()).unwrap();
+        g.file.write(b"(").unwrap();
+
+        for (i, arg) in proc.args.iter().enumerate() {
+            arg.walk(g);
+            if i != proc.args.len() - 1 {
+                g.file.write(b", ").unwrap();
+            }
+        }
+        g.file.write(b");\n").unwrap();
     }
 
     let mut count = 0;
@@ -427,6 +475,7 @@ pub fn codegen_start(ast: &Ast) {
         current_scope: ast.root_block.as_ref().unwrap().scope,
         scopes: ast.scopes.clone(),
         types: ast.types.clone(),
+        procs: ast.procs.clone(),
         indentation_level: 0,
         strings: ast.strings.clone(),
         string_map: HashMap::new()
@@ -436,6 +485,7 @@ pub fn codegen_start(ast: &Ast) {
     let output = std::process::Command::new("cc")
         // .arg("-ffreestanding")
         // .arg("-nostdlib")
+        .arg("-ggdb")
         .arg("out.c")
         .arg("-o")
         .arg("out")

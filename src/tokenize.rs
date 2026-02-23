@@ -68,6 +68,7 @@ pub fn is_operator(tt: &TokenType) -> bool {
         TokenType::Slash => true,
         TokenType::Assign => true,
         TokenType::Dot => true,
+        TokenType::OpenSquare => true,
         _ => false
     }
 }
