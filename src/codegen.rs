@@ -123,6 +123,7 @@ impl Codegen for Expression {
                     Operation::Mul => g.file.write(b" * ").unwrap(),
                     Operation::Assign => g.file.write(b" = ").unwrap(),
                     Operation::Or => g.file.write(b" || ").unwrap(),
+                    Operation::NotEqual => g.file.write(b" != ").unwrap(),
                     Operation::Equal => g.file.write(b" == ").unwrap(),
                     Operation::Gte => g.file.write(b" >= ").unwrap(),
                     Operation::Gt => g.file.write(b" > ").unwrap(),
@@ -176,6 +177,9 @@ impl Codegen for Expression {
             },
             Expression::String(str) => {
                 g.file.write(format!("{}", g.string_map.get(&str.str.to_string()).unwrap()).as_bytes()).unwrap();
+            },
+            Expression::Char(char) => {
+                g.file.write(format!("'{}'", char.c).as_bytes()).unwrap();
             },
             Expression::Array(arr) => {
                 g.file.write(b"{").unwrap();
@@ -390,6 +394,13 @@ fn print_indentations(g: &mut fs::File, indentation_level: u8) {
 
 fn write_start(g: &mut Generator) {
     g.file.write(r#"
+typedef enum {
+	false = 0,
+	true = 1
+} __Bool;
+#define bool __Bool
+#define	false	false
+#define	true	true
 extern int printf(const char* fmt, ...);
 void _start();
 void _cel_main();

@@ -298,6 +298,13 @@ pub fn tokenize_start(src: &str) -> Vec<Token> {
                 ret.push(token);
                 current_string.clear();
             }
+            if c == '/' && *p == '/' {
+                let mut c = iterator.next().unwrap().1;
+                while c != '\n' {
+                    c = iterator.next().unwrap().1;
+                }
+                continue;
+            }
 
             // save the delim as a token
             if is_double_delim(c, *p){
@@ -316,6 +323,24 @@ pub fn tokenize_start(src: &str) -> Vec<Token> {
                     c = iterator.next().unwrap().1;
                 }
                 ret.push(Token{x, y, tok, tt: TokenType::DoubleQuote});
+            } else if c == '\'' {
+                let mut c = iterator.next().unwrap().1;
+                let mut tok = String::new();
+                while c != '\'' {
+                    if c == '\\' {
+                        tok.push(c);
+                        c = iterator.next().unwrap().1;
+                        if c == '\'' {
+                            tok.push(c);
+                            c = iterator.next().unwrap().1;
+                        }
+                    } else {
+                        tok.push(c);
+                        c = iterator.next().unwrap().1;
+                    }
+                }
+                println!("{:?}", tok);
+                ret.push(Token{x, y, tok, tt: TokenType::SingleQuote});
             } else {
                 let token = create_token(x, y, c.to_string());
                 ret.push(token);

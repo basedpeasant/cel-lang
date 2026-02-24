@@ -10,8 +10,6 @@ read: @extern proc(fd: i32, buf: void_ptr, count: u32) -> i32;
 open: @extern proc(pathname: *u8, flags: i32, mode: u32) -> i32;
 close: @extern proc(fd: i32) -> i32;
 
-false: i32 = 0;
-true: i32 = 1;
 O_RDONLY: i32 = 0;
 O_CREAT: i32 = 64;
 
@@ -88,7 +86,7 @@ sb_push: proc(sb: *String_Builder, c: u8) {
     sb.length = sb.length + 1;
 }
 
-sb_to_string: proc(sb: *String_Builder, c: u8) -> string {
+sb_to_string: proc(sb: *String_Builder) -> string {
 	ptr: *u8;
     ptr = calloc(sb.length + 1, sizeof(char));
     for i: i32 = 0; i < sb.length; i = i + 1 {
@@ -97,4 +95,21 @@ sb_to_string: proc(sb: *String_Builder, c: u8) -> string {
     ptr[sb.length] = 0;
     ret : string = string{ sb.length, ptr };
 	return ret;
+}
+
+sb_clear: proc(sb: *String_Builder) {
+	sb.length = 0;
+}
+
+strcmp: proc(a: string, b: string) -> bool {
+	if a.length != b.length {
+		return false;
+	}
+	
+	for i: i32 = a.length; i < a. length; i = i + 1 {
+		if a.ptr[i] != b.ptr[i] {
+			return false;
+		}
+	}
+	return true;
 }

@@ -24,6 +24,7 @@ pub enum Operation {
     Lt,
     Lte,
     Equal,
+    NotEqual,
     Reference,
     Assign,
     ArrayIndex,
@@ -100,6 +101,11 @@ pub struct StringLiteral {
 }
 
 #[derive(Debug, Clone)]
+pub struct CharLiteral {
+    pub c: String
+}
+
+#[derive(Debug, Clone)]
 pub struct StructDeclarationNode {
     pub name: Option<Token>,
     pub exprs: Vec<Expression>
@@ -113,6 +119,7 @@ pub enum Expression {
     Variable(VariableNode),
     Call(CallNode),
     String(StringLiteral),
+    Char(CharLiteral),
     Array(ArrayLiteral),
     Struct(StructDeclarationNode),
     Reference(Box<Expression>)
@@ -243,6 +250,7 @@ fn op_to_string(op: Operation) -> &'static str {
         Operation::Div => "/",
         Operation::Assign => "=",
         Operation::Equal => "==",
+        Operation::NotEqual => "!=",
         Operation::Gte => ">=",
         Operation::Gt => ">",
         Operation::Lte => "<=",
@@ -412,6 +420,9 @@ fn print_expression(expr: &Expression, level: usize) {
         Expression::String(str) => {
             println!("{}String: {}", indent(level), str.str);
         },
+        Expression::Char(char) => {
+            println!("{}Char: {}", indent(level), char.c);
+        },
         Expression::Array(arr) => {
             println!("{}ArrayLiteral: [", indent(level));
             for expr in &arr.elements {
@@ -502,6 +513,33 @@ fn parse_primary(ast: &mut Ast, scope: usize) -> Expression {
             ast.advance();
             return ret;
         },
+        TokenType::SingleQuote => {
+            let mut new = String::new();
+            if current_token.tok.len() > 1 {
+                if current_token.tok.len() > 2 {
+                    panic!("Multiline character literal detected: {:?}", current_token);
+                }
+                if current_token.tok.chars().nth(0).unwrap() == '\\' {
+                    match current_token.tok.chars().nth(1).unwrap() {
+                        'n' => {}, // newline
+                        '\\' => {}, // slash
+                        't' => {}, // tabs
+                        'r' => {}, // carriage return
+                        '\'' => {}, // single quote
+                        _ => panic!("Unsupported escape sequence '{}': {:?}", current_token.tok, current_token),
+                    }
+                } else {
+                    panic!("Multiline character literal detected: {:?}", current_token);
+                }
+            } else if current_token.tok.len() == 0 {
+                panic!("Single quote character literal should not be empty: {:?}", current_token);
+            }
+            let char_literal = CharLiteral{ c: current_token.tok.clone() };
+            // ast.strings.insert(current_token.tok.clone(), string_literal.clone());
+            let ret = Expression::Char(char_literal);
+            ast.advance();
+            return ret;
+        }
         TokenType::OpenSquare => {
             ast.advance();
             let mut arr = ArrayLiteral {
@@ -540,6 +578,7 @@ fn get_op(token: &Token) -> Operation {
         TokenType::Assign => Operation::Assign,
         TokenType::LogicalOr  => Operation::Or,
         TokenType::Equal => Operation::Equal,
+        TokenType::NotEqual => Operation::NotEqual,
         TokenType::Gt => Operation::Gt,
         TokenType::Gte => Operation::Gte,
         TokenType::Lt => Operation::Lt,
@@ -560,7 +599,8 @@ fn get_prec(op: TokenType) -> i32 {
         | TokenType::Gte
         | TokenType::Lt
         | TokenType::Lte => 6,
-        TokenType::Equal => 5,
+        TokenType::Equal
+        | TokenType::NotEqual => 5,
         TokenType::LogicalOr => 4,
         TokenType::Assign => 3,
         TokenType::SemiColon
