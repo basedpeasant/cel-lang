@@ -232,6 +232,8 @@ impl Ast {
     fn match_token(&self, expected: TokenType) {
         let current_tt = self.get_current_token().unwrap().tt;
         if current_tt != expected {
+            let current_token = self.get_current_token();
+            println!("CurrentToken: {:?}", current_token);
             panic!("Expected \"{:?}\" but got \"{:?}\"", expected, current_tt);
         }
     }
@@ -754,6 +756,20 @@ fn create_variable_declaration(ast: &mut Ast, scope: usize, name: Token, skip_sc
         type_: r#type,
     };
 
+    match &var_decl.type_ {
+        Type::Proc(attributes, args, return_types) => {
+            let return_type = if return_types.len() == 0 {
+                None
+            } else if return_types.len() > 1 {
+                unreachable!("Does not support multiple return types yet")
+            } else {
+                Some(*return_types[0].clone())
+            };
+            ast.procs.push(ProcNodeHeader { name: var_decl.symbol.clone(), args: args.clone(), return_type: return_type.clone(), attributes: attributes.to_vec() });
+        },
+        _ => {}
+    }
+
     if !skip_scope {
         // we will skip scope because it gets added after parsing the for loop block
         // into the for loop's scope
@@ -797,7 +813,7 @@ fn create_proc(ast: &mut Ast, parent_scope: usize, name: Token) -> ProcNode {
     let mut return_type: Option<Type> = None;
     if ast.get_current_token().unwrap().tt == TokenType::Arrow {
         ast.advance();
-        return_type = Some(get_type(ast.get_current_token().unwrap()));
+        return_type = Some(extract_type(ast));
         ast.advance();
     }
     ast.match_token(TokenType::OpenCurly);
@@ -1179,7 +1195,7 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                 ast.advance();
                 ast.match_token(TokenType::SemiColon);
                 ast.advance();
-                let tokens = tokenize::tokenize_start(&src);
+                let tokens = tokenize::tokenize_start(&src, &filepath);
                 let mut index = ast.index;
                 for token in tokens {
                     println!("{:?}", token);

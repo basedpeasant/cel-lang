@@ -1,0 +1,16 @@
+
+include "core.ce";
+
+Vec2: type struct {
+	x: i32,
+	y: i32
+}
+
+main: proc() {
+	vecs: *Vec2 = array_new(Vec2);
+	defer array_free(vecs);
+	tmp: Vec2 = Vec2{34, 35};
+	array_append(vecs, tmp);
+	kek: Vec2 = vecs[0];
+	printf("x: %d, y: %d\n".ptr, kek.x, kek.y);
+}

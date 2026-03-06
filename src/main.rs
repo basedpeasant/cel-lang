@@ -25,7 +25,7 @@ fn main() {
         std::process::exit(0);
     }
     let src = read_src(&args[1]);
-    let tokens = tokenize::tokenize_start(&src);
+    let tokens = tokenize::tokenize_start(&src, &args[1]);
     tokenize::print_tokens(&tokens);
     let ast = ast::ast_start(tokens);
     codegen::codegen_start(&ast);

@@ -58,6 +58,7 @@ pub struct Token {
     pub y: i32,
     pub tok: String,
     pub tt: TokenType,
+    pub filename: String
 }
 
 pub fn is_operator(tt: &TokenType) -> bool {
@@ -249,16 +250,17 @@ fn get_tt(tok: &str) -> TokenType {
     }
 }
 
-fn create_token(x: i32, y: i32, tok: String) -> Token {
+fn create_token(x: i32, y: i32, tok: String, filename: String) -> Token {
     Token {
         x,
         y,
         tok: tok.clone(),
-        tt: get_tt(&tok)
+        tt: get_tt(&tok),
+        filename
     }
 }
 
-pub fn tokenize_start(src: &str) -> Vec<Token> {
+pub fn tokenize_start(src: &str, filename: &str) -> Vec<Token> {
     let (mut x, mut y) = (1, 1);
     let mut ret = Vec::<Token>::new();
     let mut iterator = src.chars().enumerate().peekable();
@@ -268,12 +270,12 @@ pub fn tokenize_start(src: &str) -> Vec<Token> {
             Some(p) => p,
             None => {
                 if current_string.len() > 0 {
-                    let token = create_token(x, y, current_string.clone());
+                    let token = create_token(x, y, current_string.clone(), filename.to_string());
                     ret.push(token);
                     current_string.clear();
                 }
                 if is_delim(c) {
-                    let token = create_token(x, y, c.to_string());
+                    let token = create_token(x, y, c.to_string(), filename.to_string());
                     ret.push(token);
                 }
                 break;
@@ -287,14 +289,14 @@ pub fn tokenize_start(src: &str) -> Vec<Token> {
         if is_whitespace(c) {
             // save token
             if current_string.len() > 0 {
-                let token = create_token(x, y, current_string.clone());
+                let token = create_token(x, y, current_string.clone(), filename.to_string());
                 ret.push(token);
                 current_string.clear();
             }
         } else if is_delim(c) {
             if current_string.len() > 0 {
                 // save the token first
-                let token = create_token(x, y, current_string.clone());
+                let token = create_token(x, y, current_string.clone(), filename.to_string());
                 ret.push(token);
                 current_string.clear();
             }
@@ -312,7 +314,7 @@ pub fn tokenize_start(src: &str) -> Vec<Token> {
                 let mut tok = String::new();
                 tok.push(c);
                 tok.push(*p);
-                let token = create_token(x, y, tok);
+                let token = create_token(x, y, tok, filename.to_string());
                 ret.push(token);
                 iterator.next();
             } else if c == '"' {
@@ -322,7 +324,7 @@ pub fn tokenize_start(src: &str) -> Vec<Token> {
                     tok.push(c);
                     c = iterator.next().unwrap().1;
                 }
-                ret.push(Token{x, y, tok, tt: TokenType::DoubleQuote});
+                ret.push(Token{x, y, tok, tt: TokenType::DoubleQuote, filename: filename.to_string()});
             } else if c == '\'' {
                 let mut c = iterator.next().unwrap().1;
                 let mut tok = String::new();
@@ -340,9 +342,9 @@ pub fn tokenize_start(src: &str) -> Vec<Token> {
                     }
                 }
                 println!("{:?}", tok);
-                ret.push(Token{x, y, tok, tt: TokenType::SingleQuote});
+                ret.push(Token{x, y, tok, tt: TokenType::SingleQuote, filename: filename.to_string()});
             } else {
-                let token = create_token(x, y, c.to_string());
+                let token = create_token(x, y, c.to_string(), filename.to_string());
                 ret.push(token);
             }
         } else {

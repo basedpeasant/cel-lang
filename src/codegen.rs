@@ -398,6 +398,7 @@ typedef enum {
 	false = 0,
 	true = 1
 } __Bool;
+#define NULL 0
 #define bool __Bool
 #define	false	false
 #define	true	true
@@ -436,7 +437,9 @@ typedef struct {
         if proc.name.tok == "main" {
             continue;
         }
-
+        for attribute in proc.attributes {
+            g.file.write(get_c_type_attribute(attribute).as_bytes()).unwrap();
+        }
         if proc.return_type.is_none() {
             g.file.write("void ".as_bytes()).unwrap();
         } else {
@@ -471,6 +474,67 @@ int main()
 {
     _cel_main();
     return 0;
+}
+
+#define ARRAY_INITIAL_CAPACITY 10
+
+typedef struct {
+    unsigned long type_size;
+    unsigned long size;
+    unsigned long capacity;
+    char data[];
+} Array_Metadata;
+
+#define array_append(DA, ITEM) \
+    do { \
+      Array_Metadata* array_meta = get_meta(DA); \
+      if (array_meta->size >= array_meta->capacity) { \
+          unsigned long new_capacity = (array_meta->capacity == 0) ? ARRAY_INITIAL_CAPACITY : array_meta->capacity * 2; \
+          array_meta = (Array_Metadata*) realloc(array_meta, sizeof(Array_Metadata) + new_capacity * array_meta->type_size); \
+          array_meta->capacity = new_capacity; \
+          void** tmp = (void**)&DA; \
+          *tmp = array_meta->data; \
+      } \
+      memcpy((char*)DA + array_meta->size * array_meta->type_size, &ITEM, array_meta->type_size); \
+      array_meta->size++; \
+    } while(0);
+
+#define array_type_size(DA) get_meta(DA)->type_size
+
+#define array_foreach(TYPE, ITEM, DA) \
+    for (unsigned long array_i = 0, next = 1; array_i < array_size((void**)&DA); next = !next, array_i++) \
+        for(TYPE ITEM = DA[array_i]; next; next = !next)
+
+#define array_new(TYPE) (TYPE*)(_array_new(sizeof(TYPE)))
+
+#define array_size(DA) _array_size((void**)&DA)
+
+// #define array_free(DA) _array_free((void**)&DA)
+
+#define array_free(DA) \
+    do { \
+        Array_Metadata* array_meta = get_meta(DA); \
+        free(array_meta); \
+    } while(0);
+
+void* _array_new(unsigned long type_size)
+{
+    Array_Metadata* meta = (Array_Metadata*) calloc(1, sizeof(Array_Metadata) + ARRAY_INITIAL_CAPACITY * type_size);
+    meta->type_size = type_size;
+    meta->size = 0;
+    meta->capacity = 0;
+    return meta->data;
+}
+
+Array_Metadata* get_meta(void* da)
+{
+    return (Array_Metadata*)((char*)da - sizeof(Array_Metadata));
+}
+
+unsigned long _array_size(void** da)
+{
+    Array_Metadata* array_meta = get_meta(*da);
+    return array_meta->size;
 }
 
 "#.as_bytes()).unwrap();
