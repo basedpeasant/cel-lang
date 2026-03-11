@@ -110,11 +110,104 @@ fn get_c_type(r#type: Type) -> (String, usize) {
     }
 }
 
+fn lookup_custom_type(types: &Vec<Type>, custom_type: &CustomType) -> CustomType {
+    let custom_type_name = custom_type.name.as_ref().unwrap();
+    for r#type in types {
+        match r#type {
+            Type::Custom(_attributes, custom_type_cmp) => {
+                let name = custom_type_cmp.name.as_ref().unwrap();
+                if custom_type_name.tok == name.tok {
+                    return custom_type_cmp.clone();
+                }
+            },
+            _ => panic!("{:?} is not a custom type", r#type)          
+        };
+    }
+    panic!("Could not find type {}", custom_type.name.as_ref().unwrap().tok);
+}
+
+fn handle_member_access(g: &mut Generator, var_decl: VariableDeclNode, bin: &BinaryOpNode, start: bool) {
+    if bin.op != Operation::Access {
+        return;
+    }
+    if start {
+        g.file.write(var_decl.symbol.tok.as_bytes()).unwrap();
+        match &var_decl.type_ {
+            Type::Pointer(_) => g.file.write(b"->").unwrap(),
+            _ => g.file.write(b".").unwrap(),
+        };
+    } else {
+        let member_symbol;
+        // Member of a variable/struct
+        match bin.lhs.as_ref() {
+            Expression::Variable(var) => {
+                member_symbol = var.symbol.clone();
+                bin.lhs.walk(g);
+            },
+            _ => unreachable!("This should not happen")
+        }
+        // TODO: needs to check if the member is a pointer or not
+        // this doesn't do that
+        match &var_decl.type_ {
+            Type::Custom(_attributes, custom_type) => {
+                let var_type = lookup_custom_type(&g.types, custom_type);
+                let mut success = false;
+                for r#type in &var_type.fields {
+                    if member_symbol.tok == r#type.0.tok {
+                        match r#type.1 {
+                            Type::Pointer(_) => g.file.write(b"->").unwrap(),
+                            _ => g.file.write(b".").unwrap()
+                        };
+                        success = true;
+                    }
+                }
+                if !success {
+                    panic!("Member \"{}\" is not found in variable \"{}\"", member_symbol.tok, var_decl.symbol.tok);
+                }
+            },
+            _ => todo!()
+        };
+    }
+
+    match bin.rhs.as_ref() {
+        Expression::Binary(bin_rhs) => {
+            if bin.op == Operation::Access {
+                handle_member_access(g, var_decl, bin_rhs, false);
+            } else {
+                bin.rhs.walk(g); // TODO: might be wrong
+            }
+        },
+        _ => bin.rhs.walk(g)
+    }
+}
+
 impl Codegen for Expression {
     fn walk(&self, g: &mut Generator) {
         // TODO: implement constant folding
         match self {
             Expression::Binary(bin) => {
+                if bin.op == Operation::Access {
+                    let mut symbol: Option<String> = None;
+                    let mut skip = false;
+                    match bin.lhs.as_ref() {
+                        Expression::Variable(var) => symbol = Some(var.symbol.tok.clone()),
+                        Expression::String(_) => {
+                            bin.lhs.walk(g);
+                            skip = true;
+                            g.file.write(b".").unwrap();
+                        },
+                        _ => panic!("Can only apply member access to variables")
+                    }
+                    if !skip {
+                        let var_decl = g.lookup_var(&symbol.as_ref().unwrap())
+                            .unwrap_or_else(|| panic!("symbol \"{}\" could not be found", symbol.unwrap()));
+                        handle_member_access(g, var_decl.clone(), bin, true);
+                    } else {
+                        bin.rhs.walk(g);
+                    }
+                    // bin.rhs.walk(g); // NOTE: might need it if at the end of ^ it is a non Access binary operation
+                    return;
+                }
                 bin.lhs.walk(g);
                 match bin.op {
                     Operation::Add => g.file.write(b" + ").unwrap(),
@@ -129,29 +222,7 @@ impl Codegen for Expression {
                     Operation::Gt => g.file.write(b" > ").unwrap(),
                     Operation::Lte => g.file.write(b" <= ").unwrap(),
                     Operation::Lt => g.file.write(b" < ").unwrap(),
-                    Operation::Access => {
-                        let mut symbol: Option<String> = None;
-                        let mut skip = false;
-                        match bin.lhs.as_ref() {
-                            Expression::Variable(var) => symbol = Some(var.symbol.tok.clone()),
-                            Expression::String(_) => {
-                                g.file.write(b".").unwrap();
-                                skip = true;
-                            },
-                            _ => panic!("Can only apply member access to variables")
-                        }
-                        if !skip {
-                            let var_decl = g.lookup_var(&symbol.as_ref().unwrap())
-                                .unwrap_or_else(|| panic!("symbol \"{}\" could not be found", symbol.unwrap()));
-
-                            match var_decl.type_ {
-                                Type::Pointer(_) => g.file.write(b"->").unwrap(),
-                                _ => g.file.write(b".").unwrap(),
-                            }
-                        } else {
-                            0 // added just to satisfy rust error lol
-                        }
-                    },
+                    Operation::Access => unreachable!("Acccess operation is handled somewhere else"),
                     Operation::Reference => g.file.write(b"&").unwrap(),
                     Operation::ArrayIndex => unreachable!("Array index should not be in a binary operation")
                 };
@@ -378,6 +449,9 @@ impl Codegen for BlockNode {
                         }
                     }
                 },
+                Statement::Break => {
+                    g.file.write(b"break;\n").unwrap();
+                }
                 _ => todo!("not implemented yet")
             }
         }
@@ -407,7 +481,7 @@ void _start();
 void _cel_main();
 typedef struct {
     unsigned int length;
-    const char* ptr;
+    const unsigned char* ptr;
 } string;
 
 "#.as_bytes()).unwrap();

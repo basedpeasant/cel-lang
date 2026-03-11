@@ -12,7 +12,7 @@ pub struct VariableNode {
     pub symbol: Token,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum Operation {
     Add,
     Sub,
@@ -166,7 +166,8 @@ pub enum DeclNode {
 #[derive(Clone)]
 pub enum Statement {
     ExpressionStatement(ExpressionStatement),
-    Declaration(DeclNode)
+    Declaration(DeclNode),
+    Break
 }
 
 #[derive(Debug, Clone)]
@@ -296,11 +297,37 @@ fn print_statement(stmt: &Statement, level: usize) {
     match stmt {
         Statement::ExpressionStatement(expr_stmt) => {
             print_expression_statement(expr_stmt, level);
-        }
+        },
         Statement::Declaration(decl) => {
             print_declaration(decl, level);
+        },
+        Statement::Break => {
+            println!("{}Break", indent(level));
         }
     }
+}
+
+fn print_if_statement(r#if: &IfNode, level: usize) {
+    println!("{}If Statement:", indent(level));
+    println!("{}Condition:", indent(level + 2));
+    if r#if.condition.is_some() {
+        print_expression(r#if.condition.as_ref().unwrap(), level + 4);
+    } else {
+        println!("{}None", indent(level + 4));
+    }
+    print_block(&r#if.block, level + 2);
+}
+
+fn print_for_statement(r#for: &ForNode, level: usize) {
+    print!("{}For Statement", indent(level));
+    if r#for.is_classic_for {
+        println!(" (Classic):");
+    } else {
+        println!(" (TODO):"); // TODO: add print for other types
+    }
+    println!("{}Condition:", indent(level + 2));
+    print_expression(&r#for.condition, level + 4);
+    print_block(&r#for.block, level + 2);
 }
 
 fn print_expression_statement(expr_stmt: &ExpressionStatement, level: usize) {
@@ -309,9 +336,16 @@ fn print_expression_statement(expr_stmt: &ExpressionStatement, level: usize) {
             println!("{}ExpressionStatement:", indent(level));
             print_expression(expr, level + 1);
         }
-        ExpressionStatement::ExpressionWithBlock(_) => {
+        ExpressionStatement::ExpressionWithBlock(expr_with_block) => {
             println!("{}ExpressionStatement (with block):", indent(level));
-            println!("{}  (TODO: implement)", indent(level));
+            match expr_with_block {
+                ExpressionStatementWithBlock::If(r#if) => {
+                    print_if_statement(&r#if, level);
+                },
+                ExpressionStatementWithBlock::For(r#for) => {
+                    print_for_statement(&r#for, level);
+                },
+            }
         }
         ExpressionStatement::Return(ret) => {
             println!("{}Return:", indent(level));
@@ -418,6 +452,9 @@ fn print_expression(expr: &Expression, level: usize) {
         }
         Expression::Call(call) => {
             println!("{}Call: {}", indent(level), call.name.tok);
+            for arg in &call.args {
+                print_expression(&arg, level + 2);
+            }
         },
         Expression::String(str) => {
             println!("{}String: {}", indent(level), str.str);
@@ -1213,6 +1250,11 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                             create_for(ast, ast.scopes[block.scope].id))
                         )
                 ));
+            },
+            TokenType::Break => {
+                ast.advance();
+                ast.match_token(TokenType::SemiColon); // gets skipped at the end of the loop
+                block.statements.push(Statement::Break);
             }
             _ => todo!("Unexpected Token \"{:?}\":{}", current_token, ast.index),
         }
