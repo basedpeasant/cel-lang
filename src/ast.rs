@@ -28,7 +28,8 @@ pub enum Operation {
     Reference,
     Assign,
     ArrayIndex,
-    Access
+    Access,
+    Not
 }
 
 #[derive(Debug, Clone)]
@@ -122,7 +123,8 @@ pub enum Expression {
     Char(CharLiteral),
     Array(ArrayLiteral),
     Struct(StructDeclarationNode),
-    Reference(Box<Expression>)
+    Reference(Box<Expression>), // TODO: this should actually be unary node
+    Not(Box<Expression>), // TODO: this should actually be unary node
 }
 
 #[derive(Clone)]
@@ -261,6 +263,7 @@ fn op_to_string(op: Operation) -> &'static str {
         Operation::Or => "||",
         Operation::Reference => "&",
         Operation::Access => ".",
+        Operation::Not => "!",
         Operation::ArrayIndex => panic!("Array indexing \"[]\" is not a binary operation")
     }
 }
@@ -485,6 +488,10 @@ fn print_expression(expr: &Expression, level: usize) {
         Expression::Reference(expr) => {
             println!("{}Reference:", indent(level));
             print_expression(expr, level);
+        },
+        Expression::Not(expr) => {
+            println!("{}Not:", indent(level));
+            print_expression(expr, level);
         }
     }
 }
@@ -536,6 +543,7 @@ fn parse_primary(ast: &mut Ast, scope: usize) -> Expression {
                         ast.advance();
                     }
                 }
+                ast.match_token(TokenType::CloseParen);
                 let ret = Expression::Call(CallNode { name, args });
                 ast.advance();
                 return ret;
@@ -603,6 +611,10 @@ fn parse_primary(ast: &mut Ast, scope: usize) -> Expression {
         TokenType::Ampersand => {
             ast.advance();
             return Expression::Reference(Box::new(parse_primary(ast, scope)));
+        },
+        TokenType::Not => {
+            ast.advance();
+            return Expression::Not(Box::new(parse_primary(ast, scope)));
         }
         _ => panic!("(Parse Primary) Unexpected Token \"{:?}\"", current_token)
     }

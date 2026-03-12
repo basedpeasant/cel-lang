@@ -224,6 +224,7 @@ impl Codegen for Expression {
                     Operation::Lt => g.file.write(b" < ").unwrap(),
                     Operation::Access => unreachable!("Acccess operation is handled somewhere else"),
                     Operation::Reference => g.file.write(b"&").unwrap(),
+                    Operation::Not => g.file.write(b"!").unwrap(),
                     Operation::ArrayIndex => unreachable!("Array index should not be in a binary operation")
                 };
                 bin.rhs.walk(g);
@@ -286,6 +287,10 @@ impl Codegen for Expression {
             },
             Expression::Reference(expr) => {
                 g.file.write(b"&").unwrap();
+                expr.walk(g);
+            },
+            Expression::Not(expr) => {
+                g.file.write(b"!").unwrap();
                 expr.walk(g);
             }
         } 

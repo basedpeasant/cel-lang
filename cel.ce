@@ -1,0 +1,349 @@
+include "core.ce";
+
+Token: type struct {
+	x: i32,
+	y: i32,
+	tok: string,
+	tt: i32
+}
+
+Array: type struct {
+	length: i32,
+	capacity: i32,
+	data: void_ptr
+}
+
+// no enums yet lol
+// TokenType "Enum"
+TK_UNKNOWN:       u8 = 1;
+TK_AT:            u8 = 2;
+TK_PLUS:          u8 = 3;
+TK_SUB:           u8 = 4;
+TK_STAR:          u8 = 5;
+TK_SLASH:         u8 = 6;
+TK_PERCENT:       u8 = 7;
+TK_SEMICOLON:     u8 = 8;
+TK_ARROW:         u8 = 9;
+TK_COLON:         u8 = 10;
+TK_DOUBLE_COLON:  u8 = 11;
+TK_AMPERSAND:     u8 = 12;
+TK_DOUBLE_QUOTE:  u8 = 13;
+TK_SINGLE_QUOTE:  u8 = 14;
+TK_DOT:           u8 = 15;
+TK_HAT:           u8 = 16;
+TK_COMMA:         u8 = 17;
+TK_OR:            u8 = 18;
+TK_LOGICAL_OR:    u8 = 19;
+TK_EQUAL:         u8 = 20;
+TK_NOT_EQUAL:     u8 = 21;
+TK_LT:            u8 = 22;
+TK_LTE:           u8 = 23;
+TK_SHORT_ASSIGN:  u8 = 24;
+TK_ASSIGN:        u8 = 25;
+TK_GT:            u8 = 26;
+TK_GTE:           u8 = 27;
+TK_NOT:           u8 = 28;
+TK_OPEN_PAREN:    u8 = 29;
+TK_CLOSE_PAREN:   u8 = 30;
+TK_OPEN_CURLY:    u8 = 31;
+TK_CLOSE_CURLY:   u8 = 32;
+TK_OPEN_SQUARE:   u8 = 33;
+TK_CLOSE_SQUARE:  u8 = 34;
+TK_TYPE:          u8 = 35;
+TK_STRUCT:        u8 = 36;
+TK_IMPORT:        u8 = 37;
+TK_DEFER:         u8 = 38;
+TK_FOR:           u8 = 39;
+TK_IN:            u8 = 40;
+TK_IF:            u8 = 41;
+TK_ELSE:          u8 = 42;
+TK_PROC:          u8 = 43;
+TK_RETURN:        u8 = 44;
+TK_INCLUDE:       u8 = 45;
+TK_WORD:          u8 = 46;
+TK_NUMBER:        u8 = 47;
+TK_BREAK:         u8 = 48;
+
+clone_string: proc(str: string) -> string {
+	ptr: *u8;
+    ptr = calloc(str.length + 1, sizeof(char));
+    for i: i32 = 0; i < str.length; i = i + 1 {
+        ptr[i] = str.ptr[i];
+	}
+    ptr[str.length] = 0;
+    ret: string = string{ str.length, ptr };
+	return ret;
+}
+
+create_token: proc(x: i32, y: i32, str: string, tt: u8) -> Token {
+	ret: Token = Token{ x, y, clone_string(str), tt };
+	return ret;
+}
+
+is_whitespace: proc(c: u8) -> i32 {
+	if c == ' ' || c == '\n' || c == '\t' {
+		return true;
+	}
+	return false;
+}
+
+get_delim_tt: proc(c: u8) -> u8 {
+	if c == '@' {
+		return TK_AT;
+	} else if c == '+' {
+		return TK_PLUS;
+	} else if c == '-' {
+		return TK_SUB;
+	} else if c == '*' {
+		return TK_STAR;
+	} else if c == '^' {
+		return TK_HAT;
+	} else if c == '/' {
+		return TK_SLASH;
+	} else if c == '%' {
+		return TK_PERCENT;
+	} else if c == ';' {
+		return TK_SEMICOLON;
+	} else if c == '"' {
+		return TK_DOUBLE_QUOTE;
+	} else if c == ',' {
+		return TK_COMMA;
+	} else if c == '!' {
+		return TK_NOT;
+	} else if c == '(' {
+		return TK_OPEN_PAREN;
+	} else if c == ')' {
+		return TK_CLOSE_PAREN;
+	} else if c == ':' {
+		return TK_COLON;
+	} else if c == '=' {
+		return TK_ASSIGN;
+	} else if c == '<' {
+		return TK_LT;
+	} else if c == '>' {
+		return TK_GT;
+	} else if c == '&' {
+		return TK_AMPERSAND;
+	} else if c == '[' {
+		return TK_OPEN_SQUARE;
+	} else if c == ']' {
+		return TK_CLOSE_SQUARE;
+	} else if c == '{' {
+		return TK_OPEN_CURLY;
+	} else if c == '}' {
+		return TK_CLOSE_CURLY;
+	} else if c == '|' {
+		return TK_LOGICAL_OR;
+	} else if c == '\'' {
+		return TK_SINGLE_QUOTE;
+	} else if c == '.' {
+		return TK_DOT;
+	}
+	return TK_UNKNOWN;
+}
+
+get_keyword_tt: proc(str: string) -> u8 {
+	if strcmp(str, "for") {
+		return TK_FOR;
+	} else if strcmp(str, "if") {
+		return TK_IF;
+	} else if strcmp(str, "else") {
+		return TK_ELSE;
+	} else if strcmp(str, "proc") {
+		return TK_PROC;
+	} else if strcmp(str, "return") {
+		return TK_RETURN;
+	} else if strcmp(str, "in") {
+		return TK_IN;
+	} else if strcmp(str, "include") {
+		return TK_INCLUDE;
+	} else if strcmp(str, "defer") {
+		return TK_DEFER;
+	} else if strcmp(str, "type") {
+		return TK_TYPE;
+	} else if strcmp(str, "struct") {
+		return TK_STRUCT;
+	} else if strcmp(str, "import") {
+		return TK_IMPORT;
+	} else {
+		return TK_UNKNOWN;
+	}
+}
+
+is_digit: proc(c: u8) -> bool {
+	if c == '0' {
+		return true;
+	} else if c == '1' {
+		return true;
+	} else if c == '2' {
+		return true;
+	} else if c == '3' {
+		return true;
+	} else if c == '4' {
+		return true;
+	} else if c == '5' {
+		return true;
+	} else if c == '6' {
+		return true;
+	} else if c == '7' {
+		return true;
+	} else if c == '8' {
+		return true;
+	} else if c == '9' {
+		return true;
+	}
+	return false;
+}
+
+is_number: proc(str: string) -> bool {
+	for i: i32 = 0; i < str.length; i = i + 1 {
+		if !is_digit(str.ptr[i]) {
+			return false;
+		}
+	}
+	return true;
+}
+
+get_tt: proc(tok: string) -> u8 {
+	if tok.length == 1 {
+		tt: u8 = get_delim_tt(tok.ptr[0]);
+		if tt != TK_UNKNOWN {
+			return tt;
+		}
+	} else if tok.length == 2 {
+		c: u8 = tok.ptr[0];
+		p: u8 = tok.ptr[1];
+		todo("get_double_delim_tt(c, p)");
+	}
+}
+
+is_delim: proc(c: u8) -> bool {
+	if c == '@' {
+		return true;
+	} else if c == '+' {
+		return true;
+	} else if c == '-' {
+		return true;
+	} else if c == '*' {
+		return true;
+	} else if c == '^' {
+		return true;
+	} else if c == '/' {
+		return true;
+	} else if c == '%' {
+		return true;
+	} else if c == ';' {
+		return true;
+	} else if c == '"' {
+		return true;
+	} else if c == ',' {
+		return true;
+	} else if c == '!' {
+		return true;
+	} else if c == '(' {
+		return true;
+	} else if c == ')' {
+		return true;
+	} else if c == ':' {
+		return true;
+	} else if c == '=' {
+		return true;
+	} else if c == '<' {
+		return true;
+	} else if c == '>' {
+		return true;
+	} else if c == '&' {
+		return true;
+	} else if c == '[' {
+		return true;
+	} else if c == ']' {
+		return true;
+	} else if c == '{' {
+		return true;
+	} else if c == '}' {
+		return true;
+	} else if c == '|' {
+		return true;
+	} else if c == '\'' {
+		return true;
+	} else if c == '.' {
+		return true;
+	}
+	return false;
+}
+
+tokenize: proc(src: *string) -> *Token {
+	x: i32 = 0;
+	y: i32 = 1;
+	current_string: String_Builder;
+	ret: *Token = array_new(Token);
+	
+	for i: i32 = 0; i < src.length; i = i + 1 {
+		c: u8 = src.ptr[i];
+		p: u8 = 0;
+		if i + 1 >= src.length {
+			if current_string.length > 0 {
+				token: Token = create_token(x, y, sb_to_string(&current_string), 0);
+				array_append(ret, token);
+				sb_clear(&current_string);
+			}
+			if is_delim(c) {
+				token: Token = create_token(x, y, sb_to_string(&current_string), 0);
+				array_append(ret, token);
+			}
+			break;
+		} else {
+			p = src.ptr[i + 1];
+		}
+
+		if c == '\n' {
+			x = 0;
+			y = y + 1;
+		}
+
+		if is_whitespace(c) {
+			// save token
+			if current_string.length > 0 {
+				token: Token = create_token(x, y, sb_to_string(&current_string), 0);
+				array_append(ret, token);
+				sb_clear(&current_string);
+			}
+		} else if is_delim(c) {
+			if current_string.length > 0 {
+				// save the token first
+				token: Token = create_token(x, y, sb_to_string(&current_string), 0);
+				array_append(ret, token);
+				sb_clear(&current_string);
+			}
+			// TODO: check if is double delim
+			x = x + 1;
+			sb_push(&current_string, c);
+			tt: u8 = get_delim_tt(c);
+			token: Token = create_token(x, y, sb_to_string(&current_string), tt);
+			array_append(ret, token);
+			sb_clear(&current_string);
+		} else {
+			x = x + 1;
+			sb_push(&current_string, c);
+		}
+
+		putc(src.ptr[i]);
+	}
+
+	return ret;
+}
+
+print_tokens: proc(tokens: *Token) {
+	len: u32 = array_size(tokens);
+	for i: i32 = 0; i < len; i = i + 1 {
+		token: Token = tokens[i];
+		printf("Token: %s [%d(%d:%d)]\n".ptr, token.tok.ptr, token.tt, token.x, token.y);
+	}
+}
+
+main: proc() {
+	src: string = read_file_to_string("hello.ce");
+	tokens: *Token = tokenize(&src);
+	print_tokens(tokens);
+	printf("Exiting...\n".ptr);
+}

@@ -2,6 +2,7 @@
 write: @extern proc(fd: i32, buf: *u8, count: i32) -> i32;
 exit: @extern proc(code: i32);
 
+abort: @extern proc();
 calloc: @extern proc(n: u64, size: u64) -> void_ptr;
 realloc: @extern proc(ptr: void_ptr, size: u64) -> void_ptr;
 free: @extern proc(ptr: void_ptr);
@@ -13,6 +14,11 @@ memcpy: @extern proc(dest: void_ptr, src: void_ptr, n: u32) -> void_ptr;
 
 O_RDONLY: i32 = 0;
 O_CREAT: i32 = 64;
+
+todo: proc(msg: string) {
+	printf("%s:%d: TODO: %s\n".ptr, __FILE__, __LINE__, msg);
+	//abort();
+}
 
 read_file_to_string: proc(filename: string) -> string {
 	sb: String_Builder;
