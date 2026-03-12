@@ -18,7 +18,7 @@ pub enum Operation {
     Sub,
     Mul,
     Div,
-    Or,
+    LogicalOr,
     Gt,
     Gte,
     Lt,
@@ -29,7 +29,8 @@ pub enum Operation {
     Assign,
     ArrayIndex,
     Access,
-    Not
+    Not,
+    And
 }
 
 #[derive(Debug, Clone)]
@@ -56,6 +57,7 @@ pub enum Type {
     I16(Vec<Attribute>),
     I32(Vec<Attribute>),
     I64(Vec<Attribute>),
+    Bool(Vec<Attribute>),
     String(Vec<Attribute>),
     Proc(Vec<Attribute>, Vec<VariableDeclNode>, Vec<Box<Type>>),
     Pointer(Box<Type>),
@@ -169,7 +171,8 @@ pub enum DeclNode {
 pub enum Statement {
     ExpressionStatement(ExpressionStatement),
     Declaration(DeclNode),
-    Break
+    Break,
+    Continue
 }
 
 #[derive(Debug, Clone)]
@@ -260,7 +263,8 @@ fn op_to_string(op: Operation) -> &'static str {
         Operation::Gt => ">",
         Operation::Lte => "<=",
         Operation::Lt => "<",
-        Operation::Or => "||",
+        Operation::LogicalOr => "||",
+        Operation::And => "&",
         Operation::Reference => "&",
         Operation::Access => ".",
         Operation::Not => "!",
@@ -306,6 +310,9 @@ fn print_statement(stmt: &Statement, level: usize) {
         },
         Statement::Break => {
             println!("{}Break", indent(level));
+        },
+        Statement::Continue => {
+            println!("{}Continue", indent(level));
         }
     }
 }
@@ -372,6 +379,7 @@ fn type_to_string(type_: &Type) -> String {
         Type::I16(_) => "i16".to_string(),
         Type::I32(_) => "i32".to_string(),
         Type::I64(_) => "i64".to_string(),
+        Type::Bool(_) => "bool".to_string(),
         Type::String(_) => "string".to_string(),
         Type::Proc(attributes, args, return_type) => {
             let mut str = String::new();
@@ -627,7 +635,7 @@ fn get_op(token: &Token) -> Operation {
         TokenType::Slash => Operation::Div,
         TokenType::Star  => Operation::Mul,
         TokenType::Assign => Operation::Assign,
-        TokenType::LogicalOr  => Operation::Or,
+        TokenType::LogicalOr  => Operation::LogicalOr,
         TokenType::Equal => Operation::Equal,
         TokenType::NotEqual => Operation::NotEqual,
         TokenType::Gt => Operation::Gt,
@@ -636,11 +644,12 @@ fn get_op(token: &Token) -> Operation {
         TokenType::Lte => Operation::Lte,
         TokenType::OpenSquare => Operation::ArrayIndex,
         TokenType::Dot => Operation::Access,
+        TokenType::Ampersand => Operation::And,
         _ => panic!("Unknown Operator \"{}\"", token.tok)
     }
 }
 
-fn get_prec(op: TokenType) -> i32 {
+fn get_prec(ast: &Ast, op: TokenType) -> i32 {
     match op {
         TokenType::OpenSquare => 10,
         TokenType::Dot => 9,
@@ -653,14 +662,18 @@ fn get_prec(op: TokenType) -> i32 {
         TokenType::Equal
         | TokenType::NotEqual => 5,
         TokenType::LogicalOr => 4,
-        TokenType::Assign => 3,
+        TokenType::Ampersand => 3,
+        TokenType::Assign => 2,
         TokenType::SemiColon
         | TokenType::Comma
         | TokenType::CloseParen
         | TokenType::CloseSquare
         | TokenType::OpenCurly
         | TokenType::CloseCurly  => -1,
-        _ => panic!("Unknown Operator \"{:?}\"", op),
+        _ => {
+            println!("{:?}", ast.get_current_token());
+            panic!("Unknown Operator \"{:?}\"", op);
+        },
     }
 }
 
@@ -677,7 +690,7 @@ fn create_expr_with_prec(ast: &mut Ast, min_prec: i32, scope: usize) -> Expressi
             break;
         }
         let op_token = op_token.unwrap().clone();
-        let prec = get_prec(op_token.tt);
+        let prec = get_prec(ast, op_token.tt);
         if prec == -1 || prec < min_prec {
             break;
         }
@@ -711,6 +724,7 @@ fn get_type(token: &Token) -> Type {
         "i16" => Type::I16(vec!()),
         "i32" => Type::I32(vec!()),
         "i64" => Type::I64(vec!()),
+        "bool" => Type::Bool(vec!()),
         "void_ptr"  => Type::VoidPtr(vec!()),
         "string" => Type::String(vec!()),
         _     => Type::Custom(vec!(), CustomType { name: Some(token.clone()), fields: vec!() }),
@@ -1267,6 +1281,11 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                 ast.advance();
                 ast.match_token(TokenType::SemiColon); // gets skipped at the end of the loop
                 block.statements.push(Statement::Break);
+            },
+            TokenType::Continue => {
+                ast.advance();
+                ast.match_token(TokenType::SemiColon);
+                block.statements.push(Statement::Continue);
             }
             _ => todo!("Unexpected Token \"{:?}\":{}", current_token, ast.index),
         }

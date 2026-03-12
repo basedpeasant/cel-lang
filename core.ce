@@ -11,13 +11,105 @@ read: @extern proc(fd: i32, buf: void_ptr, count: u32) -> i32;
 open: @extern proc(pathname: *u8, flags: i32, mode: u32) -> i32;
 close: @extern proc(fd: i32) -> i32;
 memcpy: @extern proc(dest: void_ptr, src: void_ptr, n: u32) -> void_ptr;
+strlen: @extern proc(s: *u8) -> i32;
 
 O_RDONLY: i32 = 0;
 O_CREAT: i32 = 64;
 
 todo: proc(msg: string) {
+	//NOTE: this __FILE__ and __LINE__ don't make sense here
 	printf("%s:%d: TODO: %s\n".ptr, __FILE__, __LINE__, msg);
-	//abort();
+	exit(101);
+}
+
+panic: proc(msg: string) {
+	//NOTE: this __FILE__ and __LINE__ don't make sense here
+	printf("%s:%d: panic: %s\n".ptr, __FILE__, __LINE__, msg);
+	exit(101);
+}
+
+is_valid_utf8: proc(s: string) -> bool {
+    len: i32 = s.length;
+
+    for i: i32 = 0; i < len; i {
+        c: u8 = s.ptr[i];
+        if c < 0x80 {
+            i = i + 1;
+            continue;
+        }
+
+        // 2-byte range: 0xc0 .. 0xdf
+        if c >= 0xc0 {
+            if c <= 0xdf {
+                tmp_next: i32 = i + 1;
+                if tmp_next >= len {
+                    return false;
+                }
+                cont: u8 = s.ptr[tmp_next] & 0xc0;
+                if cont != 0x80 {
+                    return false;
+                }
+                // overlong check still needs & (unavoidable)
+                over: u8 = c & 0xfe;
+                if over == 0xc0 {
+                    return false;
+                }
+                i = tmp_next + 1;  // = i + 2
+                continue;
+            }
+        }
+
+        // 3-byte range: 0xe0 .. return 0xef;
+        if c >= 0xe0 {
+            if c <= 0xef {
+                tmp_next: i32 = i + 2;
+                if tmp_next >= len {
+                    return false;
+                }
+                cont1: u8 = s.ptr[i + 1] & 0xc0;
+                if cont1 != 0x80 {
+                    return false;
+                }
+                cont2: u8 = s.ptr[i + 2] & 0xc0;
+                if cont2 != 0x80 {
+                    return false;
+                }
+                // overlong / surrogate checks still need some &
+                // (you may have to keep them or find another way)
+                i = tmp_next + 1;  // i + 3
+                continue;
+            }
+        }
+
+        // 4-byte range: 0xf0 .. 0xf7
+        if c >= 0xf0 {
+            if c <= 0xf7 {
+                tmp_next: i32 = i + 3;
+                if tmp_next >= len {
+                    return false;
+                }
+                cont1: u8 = s.ptr[i + 1] & 0xc0;
+                if cont1 != 0x80 {
+                    return false;
+                }
+                cont2: u8 = s.ptr[i + 2] & 0xc0;
+                if cont2 != 0x80 {
+                    return false;
+                }
+                cont3: u8 = s.ptr[i + 3] & 0xc0;
+                if cont3 != 0x80 {
+                    return false;
+                }
+                // overlong / >10FFFF checks
+                i = tmp_next + 1;  // i + 4
+                continue;
+            }
+        }
+
+        return false;
+    }
+
+    return true;
 }
 
 read_file_to_string: proc(filename: string) -> string {
@@ -99,7 +191,7 @@ strcmp: proc(a: string, b: string) -> bool {
 		return false;
 	}
 	
-	for i: i32 = a.length; i < a. length; i = i + 1 {
+	for i: i32 = 0; i < a. length; i = i + 1 {
 		if a.ptr[i] != b.ptr[i] {
 			return false;
 		}

@@ -10,7 +10,8 @@ struct Generator {
     types: Vec<Type>,
     indentation_level: u8,
     strings: HashMap<String, StringLiteral>,
-    string_map: HashMap<String, String>
+    string_map: HashMap<String, String>,
+    main_declaration: String
 }
 
 impl Generator {
@@ -38,7 +39,7 @@ impl Codegen for ProcNode {
     fn walk(&self, g: &mut Generator) {
         // TODO: probably should implement mangling
         if self.name.tok == "main" {
-            g.file.write(b"void _cel_main()\n").unwrap();
+            g.file.write(g.main_declaration.as_bytes()).unwrap();
         } else {
             if self.return_type.is_none() {
                 g.file.write(b"void ").unwrap();
@@ -84,6 +85,7 @@ fn get_c_type(r#type: Type) -> (String, usize) {
         Type::I16(_) =>("short".to_string(), 0),
         Type::I32(_) =>("int".to_string(), 0),
         Type::I64(_) =>("long".to_string(), 0),
+        Type::Bool(_) =>("bool".to_string(), 0),
         Type::String(_) =>("string".to_string(), 0),
         Type::Proc(attributes, _args, returns) => {
             assert!(attributes.len() > 0);
@@ -215,7 +217,7 @@ impl Codegen for Expression {
                     Operation::Sub => g.file.write(b" - ").unwrap(),
                     Operation::Mul => g.file.write(b" * ").unwrap(),
                     Operation::Assign => g.file.write(b" = ").unwrap(),
-                    Operation::Or => g.file.write(b" || ").unwrap(),
+                    Operation::LogicalOr => g.file.write(b" || ").unwrap(),
                     Operation::NotEqual => g.file.write(b" != ").unwrap(),
                     Operation::Equal => g.file.write(b" == ").unwrap(),
                     Operation::Gte => g.file.write(b" >= ").unwrap(),
@@ -224,6 +226,7 @@ impl Codegen for Expression {
                     Operation::Lt => g.file.write(b" < ").unwrap(),
                     Operation::Access => unreachable!("Acccess operation is handled somewhere else"),
                     Operation::Reference => g.file.write(b"&").unwrap(),
+                    Operation::And => g.file.write(b"&").unwrap(),
                     Operation::Not => g.file.write(b"!").unwrap(),
                     Operation::ArrayIndex => unreachable!("Array index should not be in a binary operation")
                 };
@@ -456,6 +459,9 @@ impl Codegen for BlockNode {
                 },
                 Statement::Break => {
                     g.file.write(b"break;\n").unwrap();
+                },
+                Statement::Continue => {
+                    g.file.write(b"continue;\n").unwrap();
                 }
                 _ => todo!("not implemented yet")
             }
@@ -483,7 +489,6 @@ typedef enum {
 #define	true	true
 extern int printf(const char* fmt, ...);
 void _start();
-void _cel_main();
 typedef struct {
     unsigned int length;
     const unsigned char* ptr;
@@ -491,6 +496,42 @@ typedef struct {
 
 "#.as_bytes()).unwrap();
 
+    let mut cel_main = "";
+    let mut cel_main_call = "";
+
+    for proc in &g.procs {
+        if proc.name.tok == "main" {
+            if proc.args.len() == 0 {
+                cel_main = "void _cel_main();";
+                cel_main_call = "    _cel_main();"; 
+                g.file.write(cel_main.as_bytes()).unwrap();
+            } else if proc.args.len() == 1 {
+                // TODO: make sure the types are good, but I don't think is necesssary tbh
+                if proc.args[0].symbol.tok == "argc" {
+                    cel_main = "void _cel_main(int argc);";
+                    cel_main_call = "    _cel_main(argc);";
+                    g.file.write(cel_main.as_bytes()).unwrap();
+                } else if proc.args[0].symbol.tok == "argv" {
+                    cel_main = "void _cel_main(char** argv);"; 
+                    cel_main_call = "    _cel_main(argv);";
+                    g.file.write(cel_main.as_bytes()).unwrap();
+                }
+            } else if proc.args.len() == 2 {
+                assert!(proc.args[0].symbol.tok == "argc");
+                assert!(proc.args[1].symbol.tok == "argv");
+                cel_main = "void _cel_main(int argc, char** argv);";
+                cel_main_call = "    _cel_main(argc, argv);";
+                g.file.write(cel_main.as_bytes()).unwrap();
+            }
+            break;
+        }
+    }
+
+    assert!(cel_main != "");
+    assert!(cel_main_call != "");
+    let cel_main = cel_main.replace(";", "");
+    g.main_declaration = cel_main.to_string();
+    
     for r#type in &g.types {
         match r#type {
             Type::Custom(attributes, custom) => {
@@ -529,6 +570,8 @@ typedef struct {
         g.file.write(b"(").unwrap();
 
         for (i, arg) in proc.args.iter().enumerate() {
+            // TODO: we have to fix custom types in arg decalrations so they don't
+            // do array initialization
             arg.walk(g);
             if i != proc.args.len() - 1 {
                 g.file.write(b", ").unwrap();
@@ -547,11 +590,12 @@ typedef struct {
         count += 1;
     }
 
-    g.file.write(r#"
-
-int main()
+    g.file.write(r#"int main(int argc, char** argv)
 {
-    _cel_main();
+"#.as_bytes()).unwrap();
+    g.file.write(cel_main_call.as_bytes()).unwrap();
+
+    g.file.write(r#"
     return 0;
 }
 
@@ -632,7 +676,8 @@ pub fn codegen_start(ast: &Ast) {
         procs: ast.procs.clone(),
         indentation_level: 0,
         strings: ast.strings.clone(),
-        string_map: HashMap::new()
+        string_map: HashMap::new(),
+        main_declaration: String::new()
     };
     write_start(&mut g);
     ast.root_block.as_ref().unwrap().walk(&mut g);

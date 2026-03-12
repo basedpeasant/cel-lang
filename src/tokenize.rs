@@ -1,6 +1,6 @@
 use crate::const_assert;
 
-const TOKEN_TYPE_COUNT: i32 = 48;
+const TOKEN_TYPE_COUNT: i32 = 49;
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum TokenType {
     Unknown,
@@ -51,6 +51,7 @@ pub enum TokenType {
     Word,
     Number,
     Break,
+    Continue
 }
 
 #[derive(Debug, Clone)]
@@ -82,7 +83,7 @@ fn is_whitespace(c: char) -> bool {
     }
 }
 
-const_assert!(TOKEN_TYPE_COUNT == 48, "Update: TOKEN_TYPE_COUNT has changed");
+const_assert!(TOKEN_TYPE_COUNT == 49, "Update: TOKEN_TYPE_COUNT has changed");
 fn is_delim(c: char) -> bool {
     match c {
         '@' => true,
@@ -147,7 +148,7 @@ fn get_delim_tt(c: char) -> TokenType {
     }
 }
 
-const_assert!(TOKEN_TYPE_COUNT == 48, "Update: TOKEN_TYPE_COUNT has changed");
+const_assert!(TOKEN_TYPE_COUNT == 49, "Update: TOKEN_TYPE_COUNT has changed");
 fn get_keyword_tt(str: &str) -> TokenType {
     match str {
         "for"     => TokenType::For,
@@ -162,11 +163,12 @@ fn get_keyword_tt(str: &str) -> TokenType {
         "struct" => TokenType::Struct,
         "import" => TokenType::Import,
         "break" => TokenType::Break,
+        "continue" => TokenType::Continue,
         _         => TokenType::Unknown
     }
 }
 
-const_assert!(TOKEN_TYPE_COUNT == 48, "Update: TOKEN_TYPE_COUNT has changed");
+const_assert!(TOKEN_TYPE_COUNT == 49, "Update: TOKEN_TYPE_COUNT has changed");
 fn is_double_delim(c: char, p: char) -> bool {
     if c == ':' && p == '=' {
         true
@@ -189,7 +191,7 @@ fn is_double_delim(c: char, p: char) -> bool {
     }
 }
 
-const_assert!(TOKEN_TYPE_COUNT == 48, "Update: TOKEN_TYPE_COUNT has changed");
+const_assert!(TOKEN_TYPE_COUNT == 49, "Update: TOKEN_TYPE_COUNT has changed");
 fn get_double_delim_tt(c: char, p: char) -> TokenType {
     if c == ':' && p == '=' {
         TokenType::ShortAssign
@@ -337,13 +339,15 @@ pub fn tokenize_start(src: &str, filename: &str) -> Vec<Token> {
                         if c == '\'' {
                             tok.push(c);
                             c = iterator.next().unwrap().1;
+                        } else {
+                            tok.push(c);
+                            c = iterator.next().unwrap().1;
                         }
                     } else {
                         tok.push(c);
                         c = iterator.next().unwrap().1;
                     }
                 }
-                println!("{:?}", tok);
                 ret.push(Token{x, y, tok, tt: TokenType::SingleQuote, filename: filename.to_string()});
             } else {
                 let token = create_token(x, y, c.to_string(), filename.to_string());
