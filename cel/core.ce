@@ -149,6 +149,12 @@ putc: proc(c: u8) {
 
 SB_INITIAL_CAPACITY: u32 = 10;
 
+String_Builder: type struct {
+    length: u32,
+    capacity: u32,
+    chars: *u8
+}
+
 sb_push: proc(sb: *String_Builder, c: u8) {
     if sb.length + 1 >= sb.capacity {
         new_capacity: u32;
@@ -197,11 +203,5 @@ strcmp: proc(a: string, b: string) -> bool {
 		}
 	}
 	return true;
-}
-
-String_Builder: type struct {
-    length: u32,
-    capacity: u32,
-    chars: *u8
 }
 

@@ -1,0 +1,22 @@
+include "core.ce";
+include "tokenize.ce";
+include "ast.ce";
+
+print_usage: proc(i: i32) {
+	// TODO: the i is a temp fix
+	PROGRAM_NAME: string = "cel";
+    printf("Usage: %s FILENAME\n".ptr, PROGRAM_NAME.ptr);
+}
+
+main: proc(argc: i32, argv: **u8) {
+	if argc != 2 {
+		print_usage(0); // TODO: this is a temp fix
+		exit(0);
+	}
+	filename: string = string{strlen(argv[1]), argv[1]};
+	src: string = read_file_to_string(filename);
+	printf("%s".ptr, src.ptr);
+	tokens: *Token = tokenize(&src);
+	print_tokens(tokens);
+	printf("Exiting...\n".ptr);
+}

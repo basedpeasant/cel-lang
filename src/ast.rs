@@ -1250,8 +1250,14 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
             },
             TokenType::Include => {
                 ast.advance();
-                let filepath = ast.get_current_token().unwrap().tok.clone();
-                let src = match std::fs::read_to_string(&filepath) {
+                let filename = ast.get_current_token().unwrap().tok.clone();
+                let mut dir: Vec<&str> = ast.tokens[0].filename.split('/').collect();
+                if dir.len() > 1 {
+                    dir.pop();
+                }
+                dir.push(&filename);
+                let filepath = dir.join("/");
+                let src = match std::fs::read_to_string(filepath.clone()) {
                     Ok(src) => src,
                     Err(e) => panic!("Could not include \"{}\": ({})", filepath, e)
                 };

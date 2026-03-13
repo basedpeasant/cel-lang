@@ -1,0 +1,27 @@
+
+String_Literal: type struct {
+	
+}
+
+Strings_Map: type struct {
+	key: *u8,
+	value: String_Literal
+}
+
+Ast: type struct {
+	root_block: *Block_Node,
+	tokens: *Token,
+	index: u32,
+	scope: *Scope,
+	types: *Type,
+	strings: Strings_Map,
+}
+
+Block_Node: type struct {
+	statements: *Statement,
+	scope: u32
+}
+
+ast_start: proc() {
+	
+}
