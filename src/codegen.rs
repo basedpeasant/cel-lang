@@ -1,6 +1,6 @@
 
 use crate::ast::*;
-use std::{collections::HashMap, fs, io::Write};
+use std::{collections::HashMap, fmt::Formatter, fs, io::Write};
 
 struct Generator {
     file: fs::File,
@@ -106,26 +106,69 @@ fn get_c_type(r#type: Type) -> (String, usize) {
             let str = get_c_type(*arr.1);
             return (str.0, arr.0)
         },
+        Type::DynamicArray(arr) => {
+            let mut str = get_c_type(*arr);
+            str.0.push_str("*");
+            return (str.0, 0)
+        },
         Type::Pointer(ptr) => (format!("{}{}", get_c_type(ptr.as_ref().clone()).0, "*"), 0),
         Type::Custom(_, custom) => (custom.name.unwrap().tok, 0),
         _ => todo!("Type not implemented yet")
     }
 }
 
-fn lookup_custom_type(types: &Vec<Type>, custom_type: &CustomType) -> CustomType {
-    let custom_type_name = custom_type.name.as_ref().unwrap();
+fn lookup_custom_type(types: &Vec<Type>, custom_type_name: &String) -> CustomType {
+    // let custom_type_name = custom_type.name.as_ref().unwrap();
     for r#type in types {
         match r#type {
             Type::Custom(_attributes, custom_type_cmp) => {
                 let name = custom_type_cmp.name.as_ref().unwrap();
-                if custom_type_name.tok == name.tok {
+                if *custom_type_name == name.tok {
                     return custom_type_cmp.clone();
                 }
             },
             _ => panic!("{:?} is not a custom type", r#type)          
         };
     }
-    panic!("Could not find type {}", custom_type.name.as_ref().unwrap().tok);
+    panic!("Could not find type {}", custom_type_name);
+}
+
+fn lookup_choice_type(types: &Vec<Type>, custom_type_name: &String) -> ChoiceType {
+    // let custom_type_name = custom_type.name.as_ref().unwrap();
+    for r#type in types {
+        match r#type {
+            Type::Choice(_attributes, custom_type_cmp) => {
+                let name = custom_type_cmp.name.as_ref().unwrap();
+                if *custom_type_name == name.tok {
+                    return custom_type_cmp.clone();
+                }
+            },
+            _ => panic!("{:?} is not a choice type", r#type)          
+        };
+    }
+    panic!("Could not find type {}", custom_type_name);
+}
+
+fn get_type(types: &Vec<Type>, custom_type_name: &String) -> Type {
+    // let custom_type_name = custom_type.name.as_ref().unwrap();
+    for r#type in types {
+        match r#type {
+            Type::Choice(_attributes, custom_type_cmp) => {
+                let name = custom_type_cmp.name.as_ref().unwrap();
+                if *custom_type_name == name.tok {
+                    return r#type.clone();
+                }
+            },
+            Type::Custom(_attributes, custom_type_cmp) => {
+                let name = custom_type_cmp.name.as_ref().unwrap();
+                if *custom_type_name == name.tok {
+                    return r#type.clone();
+                }
+            },
+            _ => panic!("{:?} is not a choice type", r#type)          
+        };
+    }
+    panic!("Could not find type {}", custom_type_name);
 }
 
 fn handle_member_access(g: &mut Generator, var_decl: VariableDeclNode, bin: &BinaryOpNode, start: bool) {
@@ -152,7 +195,7 @@ fn handle_member_access(g: &mut Generator, var_decl: VariableDeclNode, bin: &Bin
         // this doesn't do that
         match &var_decl.type_ {
             Type::Custom(_attributes, custom_type) => {
-                let var_type = lookup_custom_type(&g.types, custom_type);
+                let var_type = lookup_custom_type(&g.types, &custom_type.name.as_ref().unwrap().tok);
                 let mut success = false;
                 for r#type in &var_type.fields {
                     if member_symbol.tok == r#type.0.tok {
@@ -198,7 +241,10 @@ impl Codegen for Expression {
                             skip = true;
                             g.file.write(b".").unwrap();
                         },
-                        _ => panic!("Can only apply member access to variables")
+                        other => {
+                            println!("{:?}", other);
+                            panic!("Can only apply member access to variables")  
+                        }
                     }
                     if !skip {
                         let var_decl = g.lookup_var(&symbol.as_ref().unwrap())
@@ -278,15 +324,59 @@ impl Codegen for Expression {
                 g.file.write(b"]").unwrap();
             },
             Expression::Struct(struct_declaration) => {
-                g.file.write(b"{").unwrap();
-                for (i, expr) in struct_declaration.exprs.iter().enumerate() {
-                    expr.walk(g);
-                    if i != struct_declaration.exprs.len() - 1 {
-                        g.file.write(b", ").unwrap();
-                    }
-                }
+                println!("{:?}", struct_declaration);
+                let var_type = get_type(&g.types, &struct_declaration.name.as_ref().unwrap().tok);
+                // check if it is a choice or a struct;
+                match var_type {
+                    Type::Custom(_attributes, _custom_type) => {
+                        g.file.write(b"{").unwrap();
+                        for (i, expr) in struct_declaration.exprs.iter().enumerate() {
+                            expr.walk(g);
+                            if i != struct_declaration.exprs.len() - 1 {
+                                g.file.write(b", ").unwrap();
+                            }
+                        }
                 
-                g.file.write(b"}").unwrap();
+                        g.file.write(b"}").unwrap();
+                    },
+                    Type::Choice(_attributes, choice_type) => {
+                        assert!(struct_declaration.exprs.len() == 1, "Too many fields in choice construct");
+                        let expr = struct_declaration.exprs[0].clone();
+                        let choice = lookup_choice_type(&g.types, &choice_type.name.as_ref().unwrap().tok);
+                        g.file.write(b"{").unwrap();
+                        let mut tag: i32 = -1;
+                        for (i, field) in choice.fields.iter().enumerate() {
+                            match &expr {
+                                Expression::Number(_) => {
+                                    match field.1 {
+                                        Type::U8(_) =>  tag = i as i32,
+                                        Type::U16(_) => tag = i as i32,
+                                        Type::U32(_) => tag = i as i32,
+                                        Type::U64(_) => tag = i as i32,
+                                        Type::I8(_) =>  tag = i as i32,
+                                        Type::I16(_) => tag = i as i32,
+                                        Type::I32(_) => tag = i as i32,
+                                        Type::I64(_) => tag = i as i32,
+                                        _ => {},
+                                    }
+                                },
+                                Expression::String(_) => {
+                                    match field.1 {
+                                        Type::String(_) => tag = i as i32,
+                                        _ => {},
+                                    }
+                                }
+                                _ => todo!(),
+                            }
+                        }
+                        assert!(tag != -1, "Failed to match expression with choice field");
+                        
+                        g.file.write(format!("._tag = {}, ._{} = ", tag, tag).as_bytes()).unwrap();
+                        expr.walk(g);
+                        g.file.write(b"}").unwrap();
+                    },
+                    _ => panic!("Invalid type for struct declaration rhs"),
+                }
             },
             Expression::Reference(expr) => {
                 g.file.write(b"&").unwrap();
@@ -325,6 +415,14 @@ impl Codegen for VariableDeclNode {
                     }
                     g.file.write(b"}").unwrap();
                 },
+                Type::DynamicArray(arr_type) => {
+                    if !self.is_arg {
+                        g.file.write(b" = ").unwrap();
+                        g.file.write(b"array_new(").unwrap();
+                        g.file.write(get_c_type(*arr_type.clone()).0.as_bytes()).unwrap();
+                        g.file.write(b")").unwrap();
+                    }
+                },
                 Type::Proc(_attributes, args, _returns) => {
                     g.file.write(b"(").unwrap();
                     for (i, arg) in args.iter().enumerate() {
@@ -336,7 +434,9 @@ impl Codegen for VariableDeclNode {
                     g.file.write(b")").unwrap();
                 },
                 Type::Custom(_attributes, _type) => {
-                    g.file.write(b" = {0}").unwrap();
+                    if !self.is_arg {
+                        g.file.write(b" = {0}").unwrap();
+                    }
                 },
                 _ => {}
             }
@@ -540,14 +640,58 @@ typedef struct {
                     todo!("Need to think more about how attributes work for structs")
                 }
                 g.file.write(attribute_str.as_bytes()).unwrap();
-                g.file.write(b"typedef struct {\n").unwrap();
+                g.file.write(format!("typedef struct {} {};\n", custom.name.as_ref().unwrap().tok, custom.name.as_ref().unwrap().tok).as_bytes()).unwrap();
+            },
+            Type::Choice(attributes, choice) => {
+                let attribute_str = String::new();
+                for _ in attributes {
+                    todo!("Need to think more about how attributes work for choices")
+                }
+                g.file.write(attribute_str.as_bytes()).unwrap();
+                g.file.write(format!("typedef struct {} {};\n", choice.name.as_ref().unwrap().tok, choice.name.as_ref().unwrap().tok).as_bytes()).unwrap();
+            },
+            _ => panic!("unexpected type in code generation, only custom types and choice types should be here")
+        }
+    }
+
+    for r#type in &g.types {
+        match r#type {
+            Type::Custom(attributes, custom) => {
+                let attribute_str = String::new();
+                for _ in attributes {
+                    todo!("Need to think more about how attributes work for structs")
+                }
+                g.file.write(attribute_str.as_bytes()).unwrap();
+                g.file.write(format!("struct {} {{\n", custom.name.as_ref().unwrap().tok).as_bytes()).unwrap();
                 for field in &custom.fields {
                     print_indentations(&mut g.file, g.indentation_level + 1);
                     let c_type = get_c_type(field.1.clone());
                     g.file.write(format!("{} {};\n", c_type.0, field.0.tok).as_bytes()).unwrap();
                 }
-                g.file.write(format!("}} {};\n\n", custom.name.as_ref().unwrap().tok).as_bytes()).unwrap();
+                g.file.write(b"};\n\n").unwrap();
             },
+            Type::Choice(attributes, choice) => {
+                let attribute_str = String::new();
+                for _ in attributes {
+                    todo!("Need to think more about how attributes work for structs")
+                }
+                g.file.write(attribute_str.as_bytes()).unwrap();
+                g.file.write(format!("struct {} {{\n", choice.name.as_ref().unwrap().tok).as_bytes()).unwrap();
+                print_indentations(&mut g.file, g.indentation_level + 1);
+                g.file.write(b"int _tag;\n").unwrap();
+                print_indentations(&mut g.file, g.indentation_level + 1);
+                g.file.write(b"union {\n").unwrap();
+                let mut index = 0;
+                for field in &choice.fields {
+                    print_indentations(&mut g.file, g.indentation_level + 2);
+                    let c_type = get_c_type(field.1.clone());
+                    g.file.write(format!("{} _{};\n", c_type.0, index).as_bytes()).unwrap();
+                    index += 1;
+                }
+                print_indentations(&mut g.file, g.indentation_level + 1);
+                g.file.write(b"};\n").unwrap();
+                g.file.write(b"};\n\n").unwrap();
+            }
             _ => panic!("unexpected type in code generation, only custom types should be here")
         }
     }

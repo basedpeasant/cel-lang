@@ -39,6 +39,12 @@ pub struct CustomType {
     pub fields: Vec<(Token, Type)>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ChoiceType {
+    pub name: Option<Token>,
+    pub fields: Vec<(Option<Token>, Type)>,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum Attribute {
     Extern,
@@ -61,9 +67,11 @@ pub enum Type {
     String(Vec<Attribute>),
     Proc(Vec<Attribute>, Vec<VariableDeclNode>, Vec<Box<Type>>),
     Pointer(Box<Type>),
+    DynamicArray(Box<Type>),
     Array((usize, Box<Type>)),
     Slice(Box<Type>),
-    Custom(Vec<Attribute>, CustomType)
+    Custom(Vec<Attribute>, CustomType),
+    Choice(Vec<Attribute>, ChoiceType)
 }
 
 #[derive(Debug, Clone)]
@@ -89,7 +97,8 @@ pub struct ArrayLiteral {
 pub struct VariableDeclNode {
     pub symbol: Token,
     pub rhs: Option<Expression>,
-    pub type_: Type
+    pub type_: Type,
+    pub is_arg: bool
 }
 
 #[derive(Debug, Clone)]
@@ -110,6 +119,12 @@ pub struct CharLiteral {
 
 #[derive(Debug, Clone)]
 pub struct StructDeclarationNode {
+    pub name: Option<Token>,
+    pub exprs: Vec<Expression>
+}
+
+#[derive(Debug, Clone)]
+pub struct ChoiceDeclarationNode {
     pub name: Option<Token>,
     pub exprs: Vec<Expression>
 }
@@ -408,7 +423,14 @@ fn type_to_string(type_: &Type) -> String {
             let type_str = type_to_string(&*arr.1);
             return format!("[{}; {}]", type_str, arr.0);
         },
+        Type::DynamicArray(arr) => {
+            let type_str = type_to_string(arr);
+            return format!("[{}; dynamic]", type_str);
+        },
         Type::Custom(_, custom) => {
+            return custom.name.as_ref().unwrap().tok.clone();
+        },
+        Type::Choice(_, custom) => {
             return custom.name.as_ref().unwrap().tok.clone();
         },
         Type::Pointer(ptr) => format!("{}{}", "*", type_to_string(&ptr)),
@@ -618,7 +640,14 @@ fn parse_primary(ast: &mut Ast, scope: usize) -> Expression {
         },
         TokenType::Ampersand => {
             ast.advance();
-            return Expression::Reference(Box::new(parse_primary(ast, scope)));
+            let peek = ast.get_peek().unwrap().clone();
+            let mut lhs = parse_primary(ast, scope);
+            if peek.tt == TokenType::Dot {
+                ast.advance();
+                let rhs = parse_primary(ast, scope);
+                lhs = Expression::Binary(ast_create_binary(Operation::Access, lhs, rhs));
+            }
+            return Expression::Reference(Box::new(lhs));
         },
         TokenType::Not => {
             ast.advance();
@@ -795,6 +824,7 @@ fn create_variable_declaration(ast: &mut Ast, scope: usize, name: Token, skip_sc
             rhs = Some(r);
         } else {
             ast.match_token(TokenType::Word);
+            let name = ast.get_current_token().unwrap().clone();
             ast.advance();
             ast.match_token(TokenType::OpenCurly);
             ast.advance();
@@ -809,7 +839,7 @@ fn create_variable_declaration(ast: &mut Ast, scope: usize, name: Token, skip_sc
                 current_token = ast.get_current_token().unwrap().clone();
             }
             ast.advance();
-            rhs = Some(Expression::Struct(StructDeclarationNode { name: None, exprs }));
+            rhs = Some(Expression::Struct(StructDeclarationNode { name: Some(name), exprs }));
         }
     }
 
@@ -817,6 +847,7 @@ fn create_variable_declaration(ast: &mut Ast, scope: usize, name: Token, skip_sc
         symbol: name.clone(),
         rhs,
         type_: r#type,
+        is_arg: false,
     };
 
     match &var_decl.type_ {
@@ -867,6 +898,7 @@ fn create_proc(ast: &mut Ast, parent_scope: usize, name: Token) -> ProcNode {
             symbol: symbol.clone(),
             rhs: None,
             type_: extract_type(ast),
+            is_arg: true
         };
         args.push(var_decl);
         ast.advance();
@@ -951,9 +983,16 @@ fn extract_type(ast: &mut Ast) -> Type {
         },
         TokenType::OpenSquare => {
             ast.advance();
-            if ast.get_current_token().unwrap().tt == TokenType::CloseSquare {
+            let current_token = ast.get_current_token().unwrap();
+            if current_token.tt == TokenType::CloseSquare {
                 // SLICE
                 todo!("implement slice");
+            } if current_token.tt == TokenType::Plus {
+                // Dynamic array
+                ast.advance();
+                ast.match_token(TokenType::CloseSquare);
+                ast.advance();
+                return Type::DynamicArray(Box::new(extract_type(ast)));
             } else {
                 let size = ast.get_current_token().unwrap().clone().tok.parse::<usize>().unwrap();
                 ast.advance();
@@ -966,9 +1005,9 @@ fn extract_type(ast: &mut Ast) -> Type {
             // declaration of a new type
             ast.advance();
             let current_token = ast.get_current_token().unwrap();
-            let mut fields = Vec::<(Token, Type)>::new();
             match current_token.tt {
                 TokenType::Struct => {
+                    let mut fields = Vec::<(Token, Type)>::new();
                     ast.advance();
                     ast.match_token(TokenType::OpenCurly);
                     ast.advance();
@@ -996,6 +1035,32 @@ fn extract_type(ast: &mut Ast) -> Type {
                     ast.match_token(TokenType::CloseCurly);
                     return Type::Custom(vec!(), CustomType { name: None, fields });
                 },
+                TokenType::Choice => {
+                    ast.advance();
+                    let mut fields = Vec::<(Option<Token>, Type)>::new();
+                    ast.match_token(TokenType::OpenCurly);
+                    ast.advance();
+                    loop {
+                        // TODO: named fields
+                        let current_token = ast.get_current_token().unwrap();
+                        if current_token.tt == TokenType::CloseCurly {
+                            break;
+                        }
+                        ast.match_token(TokenType::Word);
+                        let r#type = extract_type(ast);
+                        ast.advance();
+                        let current_token = ast.get_current_token().unwrap();
+                        if current_token.tt == TokenType::Comma {
+                            ast.advance();
+                        } else if current_token.tt != TokenType::CloseCurly {
+                            // TODO: maek this error better lol
+                            panic!("Seems you have missed a comma!");
+                        }
+                        fields.push((None, r#type));
+                    }
+                    ast.match_token(TokenType::CloseCurly);
+                    return Type::Choice(vec!(), ChoiceType { name: None, fields });
+                }
                 _ => panic!("Unexpected type class"),
             }
         },
@@ -1024,6 +1089,7 @@ fn extract_type(ast: &mut Ast) -> Type {
                     symbol: symbol.clone(),
                     rhs: None,
                     type_: extract_type(ast),
+                    is_arg: true,
                 };
                 args.push(var_decl);
                 ast.advance();
@@ -1199,6 +1265,7 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                         let mut new_type = extract_type(ast);
                         match &mut new_type {
                             Type::Custom(_, custom) => custom.name = Some(name),
+                            Type::Choice(_, choice) => choice.name = Some(name),
                             _ => unreachable!()
                         }
                         ast.types.push(new_type);
