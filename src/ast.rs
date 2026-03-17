@@ -1,7 +1,7 @@
 
-use std::{collections::HashMap};
+use std::{any::Any, collections::HashMap};
 
-use crate::tokenize::{self, is_operator, print_tokens, Token, TokenType};
+use crate::tokenize::{self, is_operator, print_tokens, Token, TokenType, create_token};
 #[derive(Debug, Clone)]
 pub struct NumberNode {
     pub val: i64,
@@ -124,12 +124,6 @@ pub struct StructDeclarationNode {
 }
 
 #[derive(Debug, Clone)]
-pub struct ChoiceDeclarationNode {
-    pub name: Option<Token>,
-    pub exprs: Vec<Expression>
-}
-
-#[derive(Debug, Clone)]
 pub enum Expression {
     Index(IndexNode),
     Binary(BinaryOpNode),
@@ -153,6 +147,20 @@ pub struct IfNode {
 }
 
 #[derive(Clone)]
+enum MatchKind {
+    Switch,
+    Choice,
+}
+
+#[derive(Clone)]
+pub struct MatchNode {
+    pub match_type: MatchKind,
+    pub fields: Vec<Type>,
+    pub subject: VariableNode,
+    pub var: VariableDeclNode
+}
+
+#[derive(Clone)]
 pub struct ForNode {
     pub block: BlockNode,
     pub is_classic_for: bool,
@@ -164,7 +172,8 @@ pub struct ForNode {
 #[derive(Clone)]
 pub enum ExpressionStatementWithBlock {
     If(IfNode),
-    For(ForNode)
+    For(ForNode),
+    Match(MatchNode)
 }
 
 #[derive(Clone)]
@@ -370,6 +379,9 @@ fn print_expression_statement(expr_stmt: &ExpressionStatement, level: usize) {
                 ExpressionStatementWithBlock::For(r#for) => {
                     print_for_statement(&r#for, level);
                 },
+                ExpressionStatementWithBlock::Match(r#match) => {
+                    todo!("implement printing for match")
+                }
             }
         }
         ExpressionStatement::Return(ret) => {
@@ -1238,6 +1250,37 @@ fn create_for(ast: &mut Ast, parent_scope: usize) -> ForNode {
     }
 }
 
+fn lookup_var(ast: &Ast, scope_id: usize, name: &str) -> Option<VariableDeclNode> {
+    let mut scope_id = scope_id;
+
+    loop {
+        if let Some(decl) = ast.scopes[scope_id].map.get(name) {
+            return Some(decl.clone());
+        }
+
+        match ast.scopes[scope_id].parent_scope {
+            Some(parent) => scope_id = parent,
+            None => return None,
+        }
+    }
+}
+
+fn lookup_choice_type(types: &Vec<Type>, custom_type_name: &String) -> ChoiceType {
+    // let custom_type_name = custom_type.name.as_ref().unwrap();
+    for r#type in types {
+        match r#type {
+            Type::Choice(_attributes, custom_type_cmp) => {
+                let name = custom_type_cmp.name.as_ref().unwrap();
+                if *custom_type_name == name.tok {
+                    return custom_type_cmp.clone();
+                }
+            },
+            _ => panic!("{:?} is not a choice type", r#type)          
+        };
+    }
+    panic!("Could not find type {}", custom_type_name);
+}
+
 fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> BlockNode {
     let mut block = BlockNode{
         statements: vec!(),
@@ -1359,6 +1402,74 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                 ast.advance();
                 ast.match_token(TokenType::SemiColon);
                 block.statements.push(Statement::Continue);
+            },
+            TokenType::Match => {
+                // currently only choice matches work TODO: implement others
+                ast.advance();
+                let name = ast.get_current_token().unwrap().clone();
+                ast.advance();
+                ast.match_token(TokenType::ShortAssign);
+                ast.advance();
+                let var = ast.get_current_token().unwrap().clone();
+                ast.advance();
+                ast.match_token(TokenType::OpenCurly);
+                ast.advance();
+                let var = match lookup_var(ast, block.scope, &var.tok) {
+                    Some(var) => var,
+                    None => panic!("Could not find \"{}\"", var.tok)
+                };
+                let fields;
+                match var.type_ {
+                    Type::Choice(_attributes, choice_type) => {
+                        fields = choice_type.fields;
+                    }
+                    _ => {
+                        println!("{:?}", var.type_);
+                        panic!("cannot match on a non-choice type variable for the moment")
+                    }
+                }
+                loop {
+                    let current_token = ast.get_current_token().unwrap();
+                    if current_token.tt == TokenType::CloseCurly {
+                        break;
+                    }
+                    // TODO: make sure fields match whats being created
+                    let field_tok = ast.get_current_token().unwrap().clone();
+                    let field_type = extract_type(ast);
+                    let mut index = -1;
+                    for (i, field) in fields.iter().enumerate() {
+                        if field.type_id() == field_type.type_id() {
+                            index = i as i32;
+                        }
+                    }
+                    if index == -1 {
+                        println!("{:?}", field_tok);
+                        panic!("Field \"{}\" does not exist for \"{}\"", field_tok.tok, var.symbol.tok)
+                    }
+                    ast.advance();
+                    ast.match_token(TokenType::FatArrow);
+                    ast.advance();
+                    ast.match_token(TokenType::OpenCurly);
+                    ast.advance();
+                    let field_block = create_block(ast, root, Some(block.scope));
+                    let field_scope = &mut ast.scopes[field_block.scope];
+                    field_scope.map.insert(name.tok.clone(), VariableDeclNode {
+                        symbol: name.clone(),
+                        rhs: Some(Expression::Binary(BinaryOpNode {
+                            lhs: Box::new(Expression::Variable(VariableNode { symbol: name.clone() })),
+                            rhs: Box::new(Expression::Variable(VariableNode { symbol: create_token(-1, -1, format!("_{}", index), "inserted".to_string()) })),
+                            op: Operation::Access
+                        })), // NOTE: might need to fill this in
+                        type_: field_type,
+                        is_arg: false
+                    });
+                    ast.match_token(TokenType::CloseCurly);
+                    ast.advance();
+                    if ast.get_current_token().unwrap().tt == TokenType::Comma {
+                        ast.advance();
+                    }
+                }
+                todo!("implement match");
             }
             _ => todo!("Unexpected Token \"{:?}\":{}", current_token, ast.index),
         }

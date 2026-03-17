@@ -324,7 +324,6 @@ impl Codegen for Expression {
                 g.file.write(b"]").unwrap();
             },
             Expression::Struct(struct_declaration) => {
-                println!("{:?}", struct_declaration);
                 let var_type = get_type(&g.types, &struct_declaration.name.as_ref().unwrap().tok);
                 // check if it is a choice or a struct;
                 match var_type {
@@ -514,6 +513,7 @@ impl Codegen for ExpressionStatementWithBlock {
         match self {
             ExpressionStatementWithBlock::If(if_node) => if_node.walk(g),
             ExpressionStatementWithBlock::For(for_node) => for_node.walk(g),
+            ExpressionStatementWithBlock::Match(match_node) => todo!("Implement match codegen"),
         }
     }
 }
@@ -589,10 +589,10 @@ typedef enum {
 #define	true	true
 extern int printf(const char* fmt, ...);
 void _start();
-typedef struct {
-    unsigned int length;
-    const unsigned char* ptr;
-} string;
+// typedef struct {
+//     unsigned int length;
+//     const unsigned char* ptr;
+// } string;
 
 "#.as_bytes()).unwrap();
 
@@ -823,6 +823,8 @@ pub fn codegen_start(ast: &Ast) {
         string_map: HashMap::new(),
         main_declaration: String::new()
     };
+    // let string_type = Type::Custom(vec!(), CustomType { name: "string", fields: vec!() }) ;
+    // g.types.push();
     write_start(&mut g);
     ast.root_block.as_ref().unwrap().walk(&mut g);
     let output = std::process::Command::new("cc")

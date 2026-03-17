@@ -56,6 +56,9 @@ TK_INCLUDE:       u8 = 45;
 TK_WORD:          u8 = 46;
 TK_NUMBER:        u8 = 47;
 TK_BREAK:         u8 = 48;
+TK_FAT_ARROW:     u8 = 49;
+TK_CHOICE:        u8 = 50;
+TK_MATCH:         u8 = 51;
 
 clone_string: proc(str: string) -> string {
 	ptr: *u8;
@@ -159,6 +162,10 @@ get_keyword_tt: proc(str: string) -> u8 {
 		return TK_STRUCT;
 	} else if strcmp(str, "import") {
 		return TK_IMPORT;
+	} else if strcmp(str, "match") {
+		return TK_MATCH;
+	} else if strcmp(str, "choice") {
+		return TK_CHOICE;
 	} else {
 		return TK_UNKNOWN;
 	}
@@ -181,6 +188,8 @@ get_double_delim_tt: proc(c: u8, p: u8) -> u8 {
         return TK_NOT_EQUAL;
     } else if c == '|' && p == '|' {
         return TK_LOGICAL_OR;
+    } else if c == '=' && p == '>' {
+        return TK_FAT_ARROW;
     } else {
         return TK_UNKNOWN;
     }
@@ -202,6 +211,8 @@ is_double_delim: proc(c: u8, p: u8) -> u8 {
     } else if c == '!' && p == '=' {
         return true;
     } else if c == '|' && p == '|' {
+        return true;
+    } else if c == '=' && p == '>' {
         return true;
     } else {
         return false;
@@ -327,11 +338,11 @@ is_delim: proc(c: u8) -> bool {
 	return false;
 }
 
-tokenize: proc(src: *string) -> *Token {
+tokenize: proc(src: *string) -> [+]Token {
 	x: i32 = 0;
 	y: i32 = 1;
 	current_string: String_Builder;
-	ret: *Token = array_new(Token);
+	ret: [+]Token;
 	
 	for i: i32 = 0; i < src.length; i = i + 1 {
 		c: u8 = src.ptr[i];
@@ -437,6 +448,7 @@ tokenize: proc(src: *string) -> *Token {
 		}
 	}
 
+	sb_free(&current_string);
 	return ret;
 }
 

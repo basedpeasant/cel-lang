@@ -1,6 +1,13 @@
 
-String_Literal: type struct {
+Type: type struct {
+}
+
+Expression: type struct {
 	
+}
+
+String_Literal: type struct {
+	str: string
 }
 
 Strings_Map: type struct {
@@ -8,13 +15,26 @@ Strings_Map: type struct {
 	value: String_Literal
 }
 
-Ast: type struct {
-	root_block: *Block_Node,
-	tokens: *Token,
-	index: u32,
-	scope: *Scope,
-	types: *Type,
-	strings: Strings_Map,
+Variable_Decl_Node: type struct {
+	symbol: Token,
+	rhs: *Expression,
+	var_type: Type,
+	is_arg: bool
+}
+
+//VarDecl_Map: type struct {
+//	key: *u8,
+//	value: Variable_Decl_Node
+//}
+
+Scope: type struct {
+	parent_scope: i32,
+	id: i32,
+	map: [+]Variable_Decl_Node
+}
+
+Statement: type struct {
+	
 }
 
 Block_Node: type struct {
@@ -22,6 +42,82 @@ Block_Node: type struct {
 	scope: u32
 }
 
-ast_start: proc() {
+Ast: type struct {
+	root_block: Block_Node,
+	tokens: [+]Token,
+	index: u32,
+	scopes: [+]Scope,
+	types: [+]Type,
+	strings: Strings_Map,
+}
+
+find_name_in_scope: proc(ast: *Ast, scope_id: i32, name: string) -> *Variable_Decl_Node {
+	size: i32 = array_size(ast.scopes);
+	if scope_id < 0 || scope_id >= size {
+		return 0;
+	}
+	scope: Scope = ast.scopes[scope_id];
+
+	for i: i32 = 0; i < size; i = i + 1 {
+		var_decl: Variable_Decl_Node = scope.map[i];
+		if strcmp(name, var_decl.symbol.tok) {
+			return &scope.map[i];
+		}
+	}
+	return 0;
+}
+
+create_new_scope: proc(ast: *Ast, parent_scope: i32) -> i32 {
+	scope: Scope = Scope{parent_scope, array_size(ast.scopes), array_new(Variable_Decl_Node)};
+	array_append(ast.scopes, scope);
+	return array_size(ast.scopes) - 1;
+}
+
+get_current_token: proc(ast: *Ast) -> *Token {
+	if ast.index >= array_size(ast.tokens) {
+		return 0;
+	}
+	return &ast.tokens[ast.index + 1];
+}
+
+advance: proc(ast: *Ast) {
+	ast.index = ast.index + 1;
+}
+
+extract_type: proc(ast: *Ast) -> Type {
+	
+}
+
+create_block: proc(ast: *Ast, root: bool, parent_scope: i32) -> Block_Node {
+	block: Block_Node;
+	block.statements = array_new(Statement);
+	block.scope = create_new_scope(ast, parent_scope);
+
+	defers: [+]Statement; // TODO: work on
+
+	for true {
+		current_token: *Token = get_current_token(ast);
+		if current_token == 0 {
+			panic("Current token returned null here");
+		}
+
+		if current_token.tt == TK_WORD {
+			todo("implement");
+		}
+		advance(ast);
+	}
+	
+}
+
+ast_start: proc(tokens: [+]Token) -> Ast {
+	ast: Ast;
+	// init ast
+	ast.tokens = tokens;
+	ast.index = 0;
+	ast.scopes = array_new(Scope);
+	ast.types = array_new(Type);
+	strings: Strings_Map = Strings_Map{0}; // cannot do this in one line at the moment
+	ast.strings = strings;
+	ast.root_block = create_block(&ast, true, 0 - 1);
 	
 }

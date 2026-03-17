@@ -263,7 +263,7 @@ fn get_tt(tok: &str) -> TokenType {
     }
 }
 
-fn create_token(x: i32, y: i32, tok: String, filename: String) -> Token {
+pub fn create_token(x: i32, y: i32, tok: String, filename: String) -> Token {
     Token {
         x,
         y,
@@ -318,6 +318,8 @@ pub fn tokenize_start(src: &str, filename: &str) -> Vec<Token> {
                 while c != '\n' {
                     c = iterator.next().unwrap().1;
                 }
+                y += 1;
+                x = 0;
                 continue;
             }
 

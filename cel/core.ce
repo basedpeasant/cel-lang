@@ -16,15 +16,20 @@ strlen: @extern proc(s: *u8) -> i32;
 O_RDONLY: i32 = 0;
 O_CREAT: i32 = 64;
 
+string: type struct {
+	length: u32,
+	ptr: *u8
+}
+
 todo: proc(msg: string) {
 	//NOTE: this __FILE__ and __LINE__ don't make sense here
-	printf("%s:%d: TODO: %s\n".ptr, __FILE__, __LINE__, msg);
+	printf("%s:%d: TODO: %s\n".ptr, __FILE__, __LINE__, msg.ptr);
 	exit(101);
 }
 
 panic: proc(msg: string) {
 	//NOTE: this __FILE__ and __LINE__ don't make sense here
-	printf("%s:%d: panic: %s\n".ptr, __FILE__, __LINE__, msg);
+	printf("%s:%d: panic: %s\n".ptr, __FILE__, __LINE__, msg.ptr);
 	exit(101);
 }
 
@@ -190,6 +195,13 @@ sb_to_string: proc(sb: *String_Builder) -> string {
 
 sb_clear: proc(sb: *String_Builder) {
 	sb.length = 0;
+}
+
+sb_free: proc(sb: *String_Builder) {
+	sb.length = 0;
+	sb.chars = 0;
+	sb.capacity = 0;
+	free(sb.chars);
 }
 
 strcmp: proc(a: string, b: string) -> bool {
