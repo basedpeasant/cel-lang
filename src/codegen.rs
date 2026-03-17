@@ -477,6 +477,29 @@ impl Codegen for IfNode {
     }
 }
 
+impl Codegen for MatchNode {
+    fn walk(&self, g: &mut Generator) {
+        //TODO: support other kinds of match
+        assert!(self.match_type == MatchKind::Choice);
+        g.file.write(format!("switch({}._tag)\n", self.subject.symbol.tok).as_bytes()).unwrap();
+        print_indentations(&mut g.file, g.indentation_level);
+        g.file.write(b"{\n").unwrap();
+        for (i, field) in self.fields.iter().enumerate() {
+            print_indentations(&mut g.file, g.indentation_level);
+            g.file.write(format!("case {}: {{\n", i).as_bytes()).unwrap();
+            self.blocks[i].walk(g);
+            print_indentations(&mut g.file, g.indentation_level);
+            g.file.write(b"break;\n").unwrap();
+            print_indentations(&mut g.file, g.indentation_level);
+            g.file.write(b"}\n").unwrap();
+        }
+        
+        print_indentations(&mut g.file, g.indentation_level);
+        g.file.write(b"}\n").unwrap();
+    }
+}
+
+
 impl Codegen for ForNode {
     fn walk(&self, g: &mut Generator) {
         if !self.is_classic_for {
@@ -513,7 +536,7 @@ impl Codegen for ExpressionStatementWithBlock {
         match self {
             ExpressionStatementWithBlock::If(if_node) => if_node.walk(g),
             ExpressionStatementWithBlock::For(for_node) => for_node.walk(g),
-            ExpressionStatementWithBlock::Match(match_node) => todo!("Implement match codegen"),
+            ExpressionStatementWithBlock::Match(match_node) => match_node.walk(g),
         }
     }
 }
@@ -589,10 +612,10 @@ typedef enum {
 #define	true	true
 extern int printf(const char* fmt, ...);
 void _start();
-// typedef struct {
-//     unsigned int length;
-//     const unsigned char* ptr;
-// } string;
+typedef struct {
+    unsigned int length;
+    const unsigned char* ptr;
+} string;
 
 "#.as_bytes()).unwrap();
 
