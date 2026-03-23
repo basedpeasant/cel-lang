@@ -3,7 +3,8 @@ Token: type struct {
 	x: i32,
 	y: i32,
 	tok: string,
-	tt: i32
+	tt: i32,
+	filename: string
 }
 
 // no enums yet lol
@@ -71,9 +72,9 @@ clone_string: proc(str: string) -> string {
 	return ret;
 }
 
-create_token: proc(x: i32, y: i32, str: string) -> Token {
+create_token: proc(x: i32, y: i32, str: string, filename: string) -> Token {
 	tt: u8 = get_tt(str);
-	ret: Token = Token{ x, y, clone_string(str), tt };
+	ret: Token = Token{ x, y, clone_string(str), tt, filename };
 	return ret;
 }
 
@@ -338,7 +339,7 @@ is_delim: proc(c: u8) -> bool {
 	return false;
 }
 
-tokenize: proc(src: *string) -> [+]Token {
+tokenize: proc(src: *string, filename: string) -> [+]Token {
 	x: i32 = 0;
 	y: i32 = 1;
 	current_string: String_Builder;
@@ -349,12 +350,12 @@ tokenize: proc(src: *string) -> [+]Token {
 		p: u8 = 0;
 		if i + 1 >= src.length {
 			if current_string.length > 0 {
-				token: Token = create_token(x, y, sb_to_string(&current_string));
+				token: Token = create_token(x, y, sb_to_string(&current_string), filename);
 				array_append(ret, token);
 				sb_clear(&current_string);
 			}
 			if is_delim(c) {
-				token: Token = create_token(x, y, sb_to_string(&current_string));
+				token: Token = create_token(x, y, sb_to_string(&current_string), filename);
 				array_append(ret, token);
 			}
 			break;
@@ -370,32 +371,76 @@ tokenize: proc(src: *string) -> [+]Token {
 		if is_whitespace(c) {
 			// save token
 			if current_string.length > 0 {
-				token: Token = create_token(x, y, sb_to_string(&current_string));
+				token: Token = create_token(x, y, sb_to_string(&current_string), filename);
 				array_append(ret, token);
 				sb_clear(&current_string);
 			}
+		} else if c == '#' {
+			if current_string.length > 0 {
+				token: Token = create_token(x, y, sb_to_string(&current_string), filename);
+				array_append(ret, token);
+				sb_clear(&current_string);
+			}
+			// NOTE: we don't check if i goes over the string length here
+			i = i + 1;
+			c = src.ptr[i];
+			x = x + 1;
+			p = src.ptr[i + 1];
+			for !is_delim(p) && !is_whitespace(p) {
+				sb_push(&current_string, c);
+				i = i + 1;
+				x = x + 1;
+				c = src.ptr[i];
+				if i >= src.length + 1 {
+					panic("unreachable (in directive loop)");
+				}
+				p = src.ptr[i + 1];
+			}
+			sb_push(&current_string, c);
+			tmp: string = sb_to_string(&current_string);
+			if strcmp(tmp, "FILE") {
+				token: Token = create_token(x, y, filename, filename);
+				token.tt = TK_DOUBLE_QUOTE;
+				array_append(ret, token);
+				sb_clear(&current_string);
+			} else if strcmp(tmp, "LINE") {
+				tmp_num: [20]u8;
+				len: i32 = sprintf(tmp_num, "%d".ptr, y);
+				buf: *u8 = calloc(len, sizeof(char));
+				for i: i32 = 0; i < len; i = i + 1 {
+					buf[i] = tmp_num[i];
+				}
+				buf_string: string = string{len, buf};
+				token: Token = create_token(x, y, buf_string, filename);
+				array_append(ret, token);
+				sb_clear(&current_string);
+			} else {
+				printf("%s".ptr, current_string.chars);
+                panic("Not implemented directive for this: ");
+			}
+			free(tmp.ptr);
 		} else if is_delim(c) {
 			if current_string.length > 0 {
 				// save the token first
-				token: Token = create_token(x, y, sb_to_string(&current_string));
+				token: Token = create_token(x, y, sb_to_string(&current_string), filename);
 				array_append(ret, token);
 				sb_clear(&current_string);
 			}
 			if c == '/' && p == '/' {
 				i = i + 1;
+				// not incrementing x here becuase it doesn't matter for comments
 				for c != '\n' {
 					c = src.ptr[i];
 					i = i + 1;
 				}
 				continue;
 			}
-			// TODO: check if is double delim
 			if is_double_delim(c, p) {
 				x = x + 1;
 				sb_push(&current_string, c);
 				sb_push(&current_string, p);
 
-				token: Token = create_token(x, y, sb_to_string(&current_string));
+				token: Token = create_token(x, y, sb_to_string(&current_string), filename);
 				array_append(ret, token);
 				sb_clear(&current_string);				
 			} else if c == '"' {
@@ -406,7 +451,7 @@ tokenize: proc(src: *string) -> [+]Token {
 					i = i + 1; x = x + 1;
 					c = src.ptr[i];
 				}
-				token: Token = Token{x, y, sb_to_string(&current_string), TK_DOUBLE_QUOTE};
+				token: Token = Token{x, y, sb_to_string(&current_string), TK_DOUBLE_QUOTE, filename};
 				array_append(ret, token);
 				sb_clear(&current_string);
 			} else if c == '\'' {
@@ -432,13 +477,13 @@ tokenize: proc(src: *string) -> [+]Token {
 						c = src.ptr[i];
 					}
 				}
-				token: Token = Token{x, y, sb_to_string(&current_string), TK_SINGLE_QUOTE};
+				token: Token = Token{x, y, sb_to_string(&current_string), TK_SINGLE_QUOTE, filename};
 				array_append(ret, token);
 				sb_clear(&current_string);
 			} else {
 				x = x + 1;
 				sb_push(&current_string, c);
-				token: Token = create_token(x, y, sb_to_string(&current_string));
+				token: Token = create_token(x, y, sb_to_string(&current_string), filename);
 				array_append(ret, token);
 				sb_clear(&current_string);
 			}
@@ -549,8 +594,12 @@ get_tt_string_repr: proc(tt: u8) -> string {
 		return "TK_NUMBER";
 	} else if tt == TK_BREAK {
 		return "TK_BREAK";
+	} else if tt == TK_CHOICE {
+		return "TK_CHOICE";
+	} else if tt == TK_MATCH {
+		return "TK_MATCH";
 	} else {
-		panic("unreachable");
+		panic("unreachable (get_tt_string_repr)");
 	}
 }
 
@@ -559,7 +608,7 @@ print_tokens: proc(tokens: *Token) {
 	for i: i32 = 0; i < len; i = i + 1 {
 		token: Token = tokens[i];
 		tt_str: string = get_tt_string_repr(token.tt);
-		printf("Token: %s [%s](%d:%d)\n".ptr, token.tok.ptr, tt_str.ptr, token.x, token.y);
+		printf("Token: %s [%s](%d:%d)(%s)\n".ptr, token.tok.ptr, tt_str.ptr, token.x, token.y, token.filename.ptr);
 	}
 }
 

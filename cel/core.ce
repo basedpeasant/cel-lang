@@ -21,9 +21,9 @@ string: type struct {
 	ptr: *u8
 }
 
-todo: proc(msg: string) {
+todo: proc(msg: string, file: string, line: u32) {
 	//NOTE: this __FILE__ and __LINE__ don't make sense here
-	printf("%s:%d: TODO: %s\n".ptr, __FILE__, __LINE__, msg.ptr);
+	printf("%s:%d: TODO: %s\n".ptr, file.ptr, line, msg.ptr);
 	exit(101);
 }
 

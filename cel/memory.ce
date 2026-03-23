@@ -1,0 +1,14 @@
+
+
+
+Block: type struct {
+	free: bool,
+	size: u32,
+	next: *Block,
+	prev: *Block,
+	ptr: void_ptr
+}
+
+main: proc() {
+	
+}

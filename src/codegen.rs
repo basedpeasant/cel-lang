@@ -117,17 +117,18 @@ fn get_c_type(r#type: Type) -> (String, usize) {
     }
 }
 
-fn lookup_custom_type(types: &Vec<Type>, custom_type_name: &String) -> CustomType {
+fn lookup_custom_type(types: &Vec<Type>, custom_type_name: &String) -> Option<CustomType> {
     // let custom_type_name = custom_type.name.as_ref().unwrap();
     for r#type in types {
         match r#type {
             Type::Custom(_attributes, custom_type_cmp) => {
                 let name = custom_type_cmp.name.as_ref().unwrap();
                 if *custom_type_name == name.tok {
-                    return custom_type_cmp.clone();
+                    return Some(custom_type_cmp.clone());
                 }
             },
-            _ => panic!("{:?} is not a custom type", r#type)          
+            _ => return None,
+            // _ => panic!("{:?} is not a custom type", r#type)          
         };
     }
     panic!("Could not find type {}", custom_type_name);
@@ -143,7 +144,7 @@ fn lookup_choice_type(types: &Vec<Type>, custom_type_name: &String) -> ChoiceTyp
                     return custom_type_cmp.clone();
                 }
             },
-            _ => panic!("{:?} is not a choice type", r#type)          
+            _ => {}
         };
     }
     panic!("Could not find type {}", custom_type_name);
@@ -195,16 +196,21 @@ fn handle_member_access(g: &mut Generator, var_decl: VariableDeclNode, bin: &Bin
         // this doesn't do that
         match &var_decl.type_ {
             Type::Custom(_attributes, custom_type) => {
+                println!("{:?}", var_decl);
                 let var_type = lookup_custom_type(&g.types, &custom_type.name.as_ref().unwrap().tok);
                 let mut success = false;
-                for r#type in &var_type.fields {
-                    if member_symbol.tok == r#type.0.tok {
-                        match r#type.1 {
-                            Type::Pointer(_) => g.file.write(b"->").unwrap(),
-                            _ => g.file.write(b".").unwrap()
-                        };
-                        success = true;
+                if var_type.is_some() {
+                    for r#type in &var_type.unwrap().fields {
+                        if member_symbol.tok == r#type.0.tok {
+                            match r#type.1 {
+                                Type::Pointer(_) => g.file.write(b"->").unwrap(),
+                                _ => g.file.write(b".").unwrap()
+                            };
+                            success = true;
+                        }
                     }
+                } else {
+                    panic!("Could not find type for {}", &custom_type.name.as_ref().unwrap().tok);
                 }
                 if !success {
                     panic!("Member \"{}\" is not found in variable \"{}\"", member_symbol.tok, var_decl.symbol.tok);
@@ -364,6 +370,36 @@ impl Codegen for Expression {
                                         Type::String(_) => tag = i as i32,
                                         _ => {},
                                     }
+                                },
+                                Expression::Variable(var) => {
+                                    // let var_type = lookup_custom_type(&g.types, &var.symbol.tok);
+                                    let var_decl = g.lookup_var(&var.symbol.tok)
+                                        .unwrap_or_else(|| panic!("symbol \"{}\" could not be found", var.symbol.tok));
+                                    match (&field.1, &var_decl.type_) {
+                                        (Type::U8(_), Type::U8(_)) =>  tag = i as i32,
+                                        (Type::U16(_), Type::U16(_)) => tag = i as i32,
+                                        (Type::U32(_), Type::U32(_)) => tag = i as i32,
+                                        (Type::U64(_), Type::U64(_)) => tag = i as i32,
+                                        (Type::I8(_), Type::I8(_)) =>  tag = i as i32,
+                                        (Type::I16(_), Type::I16(_)) => tag = i as i32,
+                                        (Type::I32(_), Type::I32(_)) => tag = i as i32,
+                                        (Type::I64(_), Type::I64(_)) => tag = i as i32,
+                                        (Type::VoidPtr(_), Type::VoidPtr(_)) => tag = i as i32,
+                                        (Type::String(_), Type::String(_)) => tag = i as i32,
+                                        (Type::Bool(_), Type::Bool(_)) => tag = i as i32,
+                                        (Type::Array(_), Type::Array(_)) => tag = i as i32,
+                                        (Type::Slice(_), Type::Slice(_)) => tag = i as i32,
+                                        (Type::Custom(_attributes, field_custom_type), Type::Custom(_attributes2, var_decl_custom_type)) => {
+                                            if field_custom_type.name.as_ref().unwrap().tok == var_decl_custom_type.name.as_ref().unwrap().tok {
+                                                tag = i as i32;
+                                            }
+                                        },
+                                        (Type::Pointer(_), Type::Pointer(_)) => todo!("implement pointer in this"),
+                                        (Type::Choice(..), Type::Choice(..)) => todo!("implement choice in this"),
+                                        (Type::DynamicArray(_), Type::DynamicArray(_)) => todo!("implement dynamic arrays in this"),
+                                        _ => {},
+                                    }
+
                                 }
                                 _ => todo!(),
                             }
@@ -611,11 +647,12 @@ typedef enum {
 #define	false	false
 #define	true	true
 extern int printf(const char* fmt, ...);
+extern int sprintf(char* str, const char* format, ...);
 void _start();
-typedef struct {
-    unsigned int length;
-    const unsigned char* ptr;
-} string;
+//NOTE: should be removed later because this is just for debugging
+#define TODO(msg) \
+        printf("%s:%d: TODO: %s\n", __FILE__, __LINE__, msg.ptr); \
+        exit(101);
 
 "#.as_bytes()).unwrap();
 

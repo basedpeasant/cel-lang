@@ -1,9 +1,70 @@
 
-Type: type struct {
+
+TYPE_U8:       u8 = 1;
+TYPE_U16:      u8 = 2;
+TYPE_U32:      u8 = 3;
+TYPE_U64:      u8 = 4;
+TYPE_I8:       u8 = 5;
+TYPE_I16:      u8 = 6;
+TYPE_I32:      u8 = 7;
+TYPE_I64:      u8 = 8;
+TYPE_BOOL:     u8 = 9;
+TYPE_VOID_PTR: u8 = 10;
+TYPE_STRING:   u8 = 11;
+TYPE_CUSTOM:   u8 = 12;
+
+Attribute: type struct {
+	
 }
 
-Expression: type struct {
+Type_Custom: type struct {
+	name: *Token,
+	fields: [+]Field
+}
+
+Type_Builtin: type struct {
+	kind: u8,
+	attributes: [+]Attribute
+}
+
+Type_Pointer: type struct {
 	
+}
+
+Type_Proc: type struct {
+	
+}
+
+Type_Array: type struct {
+	
+}
+
+Type_Dynamic_Array: type struct {
+	
+}
+
+Type_Choice: type struct {
+	
+}
+
+Type: type choice {
+	Type_Builtin,
+	Type_Pointer,
+	Type_Proc,
+	Type_Array,
+	Type_Dynamic_Array,
+	Type_Choice,
+	Type_Custom
+}
+
+Field: type struct {
+	name: Token,
+	type_name: Type,
+}
+
+Block_Node: type struct {
+	statements: *Statement,
+	scope: u32
 }
 
 String_Literal: type struct {
@@ -33,13 +94,62 @@ Scope: type struct {
 	map: [+]Variable_Decl_Node
 }
 
-Statement: type struct {
-	
+Number_Node: type struct {
+	val: i64
 }
 
-Block_Node: type struct {
-	statements: *Statement,
-	scope: u32
+Expression: type choice {
+    // Index(IndexNode),
+    // Binary(BinaryOpNode),
+    Number_Node,
+    // Variable(VariableNode),
+    // Call(CallNode),
+    // String(StringLiteral),
+    // Char(CharLiteral),
+    // Array(ArrayLiteral),
+    // Struct(StructDeclarationNode),
+    // Reference(Box<Expression>), // TODO: this should actually be unary node
+    // Not(Box<Expression>), // TODO: this should actually be unary node
+}
+
+For_Node: type struct {
+	block: Block_Node,
+	is_classic_for: bool,
+	init: *Statement,
+	condition: *Expression
+}
+
+Expression_Statement_With_Block: type choice {
+	// IfNode,
+	// ForNode,
+	// MatchNode,
+}
+
+Expression_Statement: type choice {
+	// ReturnNode,
+	Expression,
+	// DeferNode,
+	// ExpressionStatementWithBlock
+}
+
+Proc_Node: type struct {
+	name: Token,
+	block: Block_Node,
+	args: [+]Variable_Decl_Node,
+	return_Type: *Type,
+	// attributes: [+]Attribute // need enum support
+}
+
+Decl_Node: type choice {
+	Proc_Node,
+	Variable_Decl_Node
+}
+
+Statement: type choice {
+	Expression_Statement,
+	Decl_Node,
+	// Break,
+	// Continue
 }
 
 Ast: type struct {
@@ -59,10 +169,10 @@ find_name_in_scope: proc(ast: *Ast, scope_id: i32, name: string) -> *Variable_De
 	scope: Scope = ast.scopes[scope_id];
 
 	for i: i32 = 0; i < size; i = i + 1 {
-		var_decl: Variable_Decl_Node = scope.map[i];
-		if strcmp(name, var_decl.symbol.tok) {
-			return &scope.map[i];
-		}
+		// var_decl: Variable_Decl_Node = scope.map[i];
+		// if strcmp(name, var_decl.symbol.tok) {
+			// return &scope.map[i];
+		// }
 	}
 	return 0;
 }
@@ -77,6 +187,13 @@ get_current_token: proc(ast: *Ast) -> *Token {
 	if ast.index >= array_size(ast.tokens) {
 		return 0;
 	}
+	return &ast.tokens[ast.index];
+}
+
+get_peek: proc(ast: *Ast) -> *Token {
+	if ast.index + 1 >= array_size(ast.tokens) {
+		return 0;
+	}
 	return &ast.tokens[ast.index + 1];
 }
 
@@ -84,8 +201,63 @@ advance: proc(ast: *Ast) {
 	ast.index = ast.index + 1;
 }
 
+get_type: proc(token: *Token) -> Type {
+	if strcmp(token.tok, "u8") {
+		inner: Type_Builtin = Type_Builtin{ TYPE_U8, array_new(Attribute) };
+		ret: Type = Type{ inner };
+		return ret;
+	} else if strcmp(token.tok, "u16") {
+		inner: Type_Builtin = Type_Builtin{ TYPE_U16, array_new(Attribute) };
+		ret: Type = Type{ inner };
+		return ret;
+	} else if strcmp(token.tok, "u32") {
+		inner: Type_Builtin = Type_Builtin{ TYPE_U32, array_new(Attribute) };
+		ret: Type = Type{ inner };
+		return ret;
+	} else if strcmp(token.tok, "u64") {
+		inner: Type_Builtin = Type_Builtin{ TYPE_U64, array_new(Attribute) };
+		ret: Type = Type{ inner };
+		return ret;
+	} else if strcmp(token.tok, "i8") {
+		inner: Type_Builtin = Type_Builtin{ TYPE_I8, array_new(Attribute) };
+		ret: Type = Type{ inner };
+		return ret;
+	} else if strcmp(token.tok, "i16") {
+		inner: Type_Builtin = Type_Builtin{ TYPE_I16, array_new(Attribute) };
+		ret: Type = Type{ inner };
+		return ret;
+	} else if strcmp(token.tok, "i32") {
+		inner: Type_Builtin = Type_Builtin{ TYPE_I32, array_new(Attribute) };
+		ret: Type = Type{ inner };
+		return ret;
+	} else if strcmp(token.tok, "i64") {
+		inner: Type_Builtin = Type_Builtin{ TYPE_I64, array_new(Attribute) };
+		ret: Type = Type{ inner };
+		return ret;
+	} else if strcmp(token.tok, "bool") {
+		inner: Type_Builtin = Type_Builtin{ TYPE_BOOL, array_new(Attribute) };
+		ret: Type = Type{ inner };
+		return ret;
+	} else if strcmp(token.tok, "void_ptr") {
+		inner: Type_Builtin = Type_Builtin{ TYPE_VOID_PTR, array_new(Attribute) };
+		ret: Type = Type{ inner };
+		return ret;
+	} else if strcmp(token.tok, "string") {
+		inner: Type_Builtin = Type_Builtin{ TYPE_STRING, array_new(Attribute) };
+		ret: Type = Type{ inner };
+		return ret;
+	} else {
+		todo("handle custom types", #FILE, #LINE);
+	}
+}
+
 extract_type: proc(ast: *Ast) -> Type {
-	
+	current_token: *Token = get_current_token(ast);
+	if current_token.tt == TK_WORD {
+		return get_type(current_token);
+	} else if current_token.tt == TK_STAR {
+		todo("not implemented yet", #FILE, #LINE);
+	}
 }
 
 create_block: proc(ast: *Ast, root: bool, parent_scope: i32) -> Block_Node {
@@ -100,10 +272,15 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: i32) -> Block_Node {
 		if current_token == 0 {
 			panic("Current token returned null here");
 		}
-
 		if current_token.tt == TK_WORD {
-			todo("implement");
+			// expression or Decl
+			peek: *Token = get_peek(ast);
+			if peek.tt == TK_COLON {
+				printf("Interesting...".ptr);
+			}
+			todo("implement", #FILE, #LINE);
 		}
+
 		advance(ast);
 	}
 	

@@ -306,6 +306,35 @@ pub fn tokenize_start(src: &str, filename: &str) -> Vec<Token> {
                 ret.push(token);
                 current_string.clear();
             }
+        } else if c == '#' {
+            if current_string.len() > 0 {
+                // save the token first
+                let token = create_token(x, y, current_string.clone(), filename.to_string());
+                ret.push(token);
+                current_string.clear();
+            }
+            let mut c = iterator.next().unwrap().1;
+            x += 1;
+            let mut p = iterator.peek().unwrap().1;
+            while !is_delim(p) && !is_whitespace(p) {
+                current_string.push(c);
+                c = iterator.next().unwrap().1;
+                x += 1;
+                p = iterator.peek().unwrap().1;
+            }
+            current_string.push(c);
+            if current_string == "FILE" {
+                let mut token = create_token(x, y, filename.to_string(), filename.to_string());
+                token.tt = TokenType::DoubleQuote;
+                ret.push(token);
+                current_string.clear();
+            } else if current_string == "LINE" {
+                let token = create_token(x, y, y.to_string(), filename.to_string());
+                ret.push(token);
+                current_string.clear();
+            } else {
+                panic!("Not implemented directive for #{}", current_string);
+            }
         } else if is_delim(c) {
             if current_string.len() > 0 {
                 // save the token first
