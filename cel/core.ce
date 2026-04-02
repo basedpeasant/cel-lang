@@ -14,11 +14,19 @@ memcpy: @extern proc(dest: void_ptr, src: void_ptr, n: u32) -> void_ptr;
 strlen: @extern proc(s: *u8) -> i32;
 
 O_RDONLY: i32 = 0;
+O_WRONLY: i32 = 1;
 O_CREAT: i32 = 64;
+O_TRUNC: i32 = 512;
 
 string: type struct {
 	length: u32,
 	ptr: *u8
+}
+
+unreachable: proc(msg: string, file: string, line: u32) {
+	//NOTE: this __FILE__ and __LINE__ don't make sense here
+	printf("%s:%d: UNREACHABLE: %s\n".ptr, file.ptr, line, msg.ptr);
+	exit(101);
 }
 
 todo: proc(msg: string, file: string, line: u32) {
@@ -27,9 +35,9 @@ todo: proc(msg: string, file: string, line: u32) {
 	exit(101);
 }
 
-panic: proc(msg: string) {
+panic: proc(msg: string, file: string, line: u32) {
 	//NOTE: this __FILE__ and __LINE__ don't make sense here
-	printf("%s:%d: panic: %s\n".ptr, __FILE__, __LINE__, msg.ptr);
+	printf("%s:%d: panic: %s\n".ptr, file.ptr, line, msg.ptr);
 	exit(101);
 }
 
@@ -135,6 +143,13 @@ read_file_to_string: proc(filename: string) -> string {
 	ret: string = string{ len, sb.chars };
 	close(fd);
 	return ret;
+}
+
+write_string_to_file: proc(content: string, filename: string) {
+    // NOTE: 420 = 0644, currently language doesn't support Octal numbers
+    fd: i32 = open(filename.ptr, O_WRONLY | O_CREAT | O_TRUNC, 420);
+    write(fd, content.ptr, content.length);
+    close(fd);
 }
 
 fgetc: proc(fd: i32) -> u8 {

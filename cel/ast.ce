@@ -31,8 +31,17 @@ Type_Pointer: type struct {
 	
 }
 
+Block_Node: type struct {
+	statements: [+]Statement,
+	scope: u32
+}
+
 Type_Proc: type struct {
-	
+	attributes: [+]Attribute,
+	args: [+]Variable_Decl_Node,
+	return_type: *Type,
+	name: *Token,
+	block: Block_Node,
 }
 
 Type_Array: type struct {
@@ -62,11 +71,6 @@ Field: type struct {
 	type_name: Type,
 }
 
-Block_Node: type struct {
-	statements: *Statement,
-	scope: u32
-}
-
 String_Literal: type struct {
 	str: string
 }
@@ -77,7 +81,7 @@ Strings_Map: type struct {
 }
 
 Variable_Decl_Node: type struct {
-	symbol: Token,
+	symbol: *Token,
 	rhs: *Expression,
 	var_type: Type,
 	is_arg: bool
@@ -141,7 +145,7 @@ Proc_Node: type struct {
 }
 
 Decl_Node: type choice {
-	Proc_Node,
+	// Proc_Node,
 	Variable_Decl_Node
 }
 
@@ -159,6 +163,7 @@ Ast: type struct {
 	scopes: [+]Scope,
 	types: [+]Type,
 	strings: Strings_Map,
+	current_scope: u32,
 }
 
 find_name_in_scope: proc(ast: *Ast, scope_id: i32, name: string) -> *Variable_Decl_Node {
@@ -197,9 +202,67 @@ get_peek: proc(ast: *Ast) -> *Token {
 	return &ast.tokens[ast.index + 1];
 }
 
+ast_match: proc(ast: *Ast, tt: u8, file: string, line: i32) {
+	// file and line are for debugging purposes
+	current_token: *Token = get_current_token(ast);
+	if current_token.tt != tt {
+		printf("[ERROR]: Expected %d but got %d\n".ptr, tt, current_token.tt);
+		panic("Compiler failed", file, line);
+	}
+}
+
 advance: proc(ast: *Ast) {
 	ast.index = ast.index + 1;
 }
+
+// NOTE: we use Type instead of *Type because we don't support matching with 
+//       choice types that are pointers and also it doesn't matter having a copy
+//       here anyway
+// TODO: uncomment out this once below match is fixed
+//get_type_string: proc(type__: Type) -> string {
+//    // NOTE: have to redeclare cus of a bug lol
+//    type_: Type = type__;
+//    match x := type_ {
+//        Type_Builtin => {
+//            if x == TYPE_U8 {
+//                return "u8";
+//            } else if x == TYPE_U16 {
+//                return "u16";
+//            } else if x == TYPE_U32 {
+//                return "u32";
+//            } else if x == TYPE_U64 {
+//                return "u64";
+//            } else if x == TYPE_I8 {
+//                return "i8";
+//            } else if x == TYPE_I16 {
+//                return "i16";
+//            } else if x == TYPE_I32 {
+//                return "i32";
+//            } else if x == TYPE_I64 {
+//                return "i64";
+//            }
+//        }
+//        Type_Pointer => { 
+//            todo("implement get_type_string for Type_Pointer", #FILE, #LINE);
+//        }
+//        Type_Proc => { 
+//            todo("implement get_type_string for Type_Proc", #FILE, #LINE);
+//        }
+//        Type_Array => { 
+//            todo("implement get_type_string for Type_Array", #FILE, #LINE);
+//        }
+//        Type_Dynamic_Array => { 
+//            todo("implement get_type_string for Type_Dynamic_Array", #FILE, #LINE);
+//        }
+//        Type_Choice => { 
+//            todo("implement get_type_string for Type_Choice", #FILE, #LINE);
+//        }
+//        Type_Custom => { 
+//            todo("implement get_type_string for Type_Custom", #FILE, #LINE);
+//        }
+//
+//    }
+//}
 
 get_type: proc(token: *Token) -> Type {
 	if strcmp(token.tok, "u8") {
@@ -246,7 +309,13 @@ get_type: proc(token: *Token) -> Type {
 		inner: Type_Builtin = Type_Builtin{ TYPE_STRING, array_new(Attribute) };
 		ret: Type = Type{ inner };
 		return ret;
+	} else if strcmp(token.tok, "proc") {
+		inner: Type_Proc = Type_Proc{ array_new(Attribute), array_new(Variable_Decl_Node), 0 };
+		ret: Type = Type{ inner };
+		return ret;
 	} else {
+		token_str: string = token.tok;
+		printf("%s\n".ptr, token_str.ptr);
 		todo("handle custom types", #FILE, #LINE);
 	}
 }
@@ -254,9 +323,93 @@ get_type: proc(token: *Token) -> Type {
 extract_type: proc(ast: *Ast) -> Type {
 	current_token: *Token = get_current_token(ast);
 	if current_token.tt == TK_WORD {
-		return get_type(current_token);
+		// TODO: certain types need to be modified after get_type
+		//       e.g. pointers, procs, arrays, etc
+		//       types like string, void_ptr, u8, etc don't 
+		t: Type = get_type(current_token);
+        // TODO: need to be able to handle attributes
+		match _x := t {
+			Type_Builtin => {
+                advance(ast);
+                return t;
+			}, // do nothing 
+			Type_Pointer => {
+				todo("handling for Type_Pointer", #FILE, #LINE);
+			},
+			Type_Array => {
+				todo("handling for Type_Array", #FILE, #LINE);
+			},
+			Type_Proc => {
+				unreachable("handled else where since 'proc' can never be a TK_WORD", #FILE, #LINE);
+			}
+			Type_Dynamic_Array => {
+				todo("handling for Type_Dynamic_Array", #FILE, #LINE);
+			},
+			Type_Choice => {
+				todo("handling for Type_Choice", #FILE, #LINE);
+			},
+			Type_Custom => {
+				todo("handling for Type_Custom", #FILE, #LINE);
+			}
+		}
+	} else if current_token.tt == TK_PROC {
+		advance(ast);
+		ast_match(ast, TK_OPEN_PAREN, #FILE, #LINE);
+		advance(ast);
+		// TODO: do args
+
+		ast_match(ast, TK_CLOSE_PAREN, #FILE, #LINE);
+		advance(ast);
+		// TODO: return type
+		attributes: [+]Attribute; //TODO: need to populate as well
+		args: [+]Variable_Decl_Node;
+		return_type: *Type = 0;
+
+		ast_match(ast, TK_OPEN_CURLY, #FILE, #LINE);
+		advance(ast);
+		proc_block: Block_Node = create_block(ast, false, ast.current_scope);
+		ast_match(ast, TK_CLOSE_CURLY, #FILE, #LINE);
+
+		proc_type: Type_Proc = Type_Proc{ attributes, args, return_type, 0, proc_block };
+		ret: Type = Type { proc_type };
+		return ret;
+		// todo("handling for Type_Proc", #FILE, #LINE);
 	} else if current_token.tt == TK_STAR {
 		todo("not implemented yet", #FILE, #LINE);
+	} else {
+		current_token_str: string = current_token.tok;
+		printf("%s\n".ptr, current_token_str.ptr);
+		todo("Unexpected Token", #FILE, #LINE);
+	}
+}
+
+print_type: proc(var_type: Type) {
+	v: Type = var_type;
+	// NOTE/TODO: this _x has to be there because of the way the compiler works rn
+	// obviously remove it once the match code supports it not being there
+	match _x := v {
+		Type_Builtin => {
+			todo("printing for Type_Builtin", #FILE, #LINE);
+		}, 
+		Type_Pointer => {
+			todo("printing for Type_Pointer", #FILE, #LINE);
+		},
+		Type_Proc => {
+			printf("Type: Proc\n".ptr);
+			//todo("printing for Type_Proc", #FILE, #LINE);
+		},
+		Type_Array => {
+			todo("printing for Type_Array", #FILE, #LINE);
+		},
+		Type_Dynamic_Array => {
+			todo("printing for Type_Dynamic_Array", #FILE, #LINE);
+		},
+		Type_Choice => {
+			todo("printing for Type_Choice", #FILE, #LINE);
+		},
+		Type_Custom => {
+			todo("printing for Type_Custom", #FILE, #LINE);
+		}
 	}
 }
 
@@ -264,26 +417,198 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: i32) -> Block_Node {
 	block: Block_Node;
 	block.statements = array_new(Statement);
 	block.scope = create_new_scope(ast, parent_scope);
+	ast.current_scope = block.scope;
 
 	defers: [+]Statement; // TODO: work on
-
 	for true {
 		current_token: *Token = get_current_token(ast);
-		if current_token == 0 {
-			panic("Current token returned null here");
+		if current_token.tt == TK_CLOSE_CURLY {
+			if root {
+				panic("[ERROR]: Unexpected Close Curly Bracket found in top level scope", #FILE, #LINE);
+			} else {
+				break;
+			}
 		}
 		if current_token.tt == TK_WORD {
 			// expression or Decl
+			name: *Token = current_token;
 			peek: *Token = get_peek(ast);
 			if peek.tt == TK_COLON {
-				printf("Interesting...".ptr);
+				advance(ast);
+				advance(ast);
+				// Declaration
+				stmt_type: Type = extract_type(ast);
+				match type_ := stmt_type {
+					Type_Builtin => {
+                        // parse RHS if it exists
+                        ct: *Token = get_current_token(ast); // ct = current_token
+                        if ct.tt == TK_ASSIGN {
+                            todo("Need to parse rhs; not implemented yet", #FILE, #LINE);
+                        } else {
+                            ast_match(ast, TK_SEMICOLON, #FILE, #LINE); // needs to be the end of the statement otherwise
+                        }
+					}
+					Type_Pointer => {
+						todo("Type_Pointer not implemented yet", #FILE, #LINE);
+					}
+					Type_Proc => {
+						type_.name = name;
+					}
+					Type_Array => {
+						todo("Type_Array not implemented yet", #FILE, #LINE);
+					}
+					Type_Dynamic_Array => {
+						todo("Type_Dynamic_Array not implemented yet", #FILE, #LINE);
+					}
+					Type_Choice => {
+						todo("Type_Choice not implemented yet", #FILE, #LINE);
+					}
+					Type_Custom => {
+						todo("Type_Custom not implemented yet", #FILE, #LINE);
+					}
+				}
+				var_decl: Variable_Decl_Node = Variable_Decl_Node{ name, 0, stmt_type, false };
+				decl: Decl_Node = Decl_Node{ var_decl };
+				stmt: Statement = Statement{ decl };
+				array_append(block.statements, stmt);
 			}
-			todo("implement", #FILE, #LINE);
+			// todo("implement", #FILE, #LINE);
 		}
 
 		advance(ast);
+		if ast.index >= array_size(ast.tokens) {
+			break;
+		}
 	}
+
+	if root {
+		print_ast(block);
+	}
+	return block;
+}
+
+print_indentations: proc(n: i32) {
+	sb: String_Builder;
+	for i: i32 = 0; i < n; i = i + 1 {
+		sb_push(&sb, ' ');
+	}
+	sb_push(&sb, 0);
+	printf("%s".ptr, sb.chars);
+	sb_free(&sb);
+}
+//Block {
+//  [0]
+//    Proc Declaration:
+//      name: "main"
+//      body:
+//        Block {
+//          [0]
+//            Variable Declaration:
+//              name: "a"
+//              type: i32
+//              initializer: (none)
+//        }
+
+print_decl: proc(decl: *Decl_Node, indentations: i32) {
+	tmp: *Decl_Node = decl;
+	match decl_ := tmp {
+		// Proc_Node => {
+			
+		// },
+		Variable_Decl_Node => {
+			decl_type: Type = decl_.var_type;
+			match var_decl_type := decl_type {
+				Type_Builtin => {
+					print_indentations(indentations + 2);
+					printf("Variable Declaration:\n".ptr);
+					print_indentations(indentations + 4);
+					token_symbol: *Token = decl_.symbol;
+					name_str: string = token_symbol.tok;
+					printf("name: '%s'\n".ptr, name_str.ptr);
+                    if decl_.rhs != 0 {
+                        todo("Type_Builtin printing rhs (print_decl)", #FILE, #LINE);
+                    } else {
+                        print_indentations(indentations + 4);
+                        printf("Initializer: (none)\n".ptr);
+                    }
+				}
+				Type_Pointer => {
+					todo("Type_Pointer not implemented (print_decl)", #FILE, #LINE);
+				}
+				Type_Proc => {
+					print_indentations(indentations + 2);
+					printf("Proc Declaration:\n".ptr);
+					print_indentations(indentations + 4);
+					token_symbol: *Token = var_decl_type.name;
+					name_str: string = token_symbol.tok;
+					printf("name: '%s'\n".ptr, name_str.ptr);
+					if var_decl_type.return_type != 0 {
+						todo("Printing for return types", #FILE, #LINE);
+					} else {
+						print_indentations(indentations + 4);
+						printf("return type: (nil)\n".ptr);
+					}
+
+					print_indentations(indentations + 4);
+					printf("body:\n".ptr);
+					print_block(&var_decl_type.block, indentations + 6);
+				}
+				Type_Array => {
+					todo("Type_Array not implemented (print_decl)", #FILE, #LINE);
+				}
+				Type_Dynamic_Array => {
+					todo("Type_Dynamic_Array not implemented (print_decl)", #FILE, #LINE);
+				}
+				Type_Choice => {
+					todo("Type_Choice not implemented (print_decl)", #FILE, #LINE);
+				}
+				Type_Custom => {
+					todo("Type_Custom not implemented (print_decl)", #FILE, #LINE);
+				}
+			}
+		}
+	}
+}
+
+print_block: proc(block: *Block_Node, indentations: i32) {
+	print_indentations(indentations);
+	printf("Block {\n".ptr);
+	for i: i32 = 0; i < array_size(block.statements); i = i + 1 {
+		 print_indentations(indentations + 2);
+		 printf("[%d]\n".ptr, i);
+		 stmt: Statement = block.statements[i];
+		 match type_ := stmt {
+		 	Expression_Statement => {
+		 		todo("print_ast for Expression_Statement", #FILE, #LINE);
+		 	},
+		 	Decl_Node => {
+				print_decl(type_, indentations + 4);
+		 	}
+		 }
+	}	
+	print_indentations(indentations);
+	printf("}\n".ptr);
+}
+
+print_ast: proc(root: Block_Node) {
+	printf("===== PRINTING AST ======\n".ptr);
+	indentations: i32 = 0;
+
+	for i: i32 = 0; i < array_size(root.statements); i = i + 1 {
+		 print_indentations(indentations + 2);
+		 printf("[%d]\n".ptr, i);
+		 stmt: Statement = root.statements[i];
+		 match type_ := stmt {
+		 	Expression_Statement => {
+		 		todo("print_ast for Expression_Statement", #FILE, #LINE);
+		 	},
+		 	Decl_Node => {
+				print_decl(type_, indentations + 2);
+		 	}
+		 }
+	}	
 	
+	printf("=========================\n".ptr);
 }
 
 ast_start: proc(tokens: [+]Token) -> Ast {
@@ -293,7 +618,7 @@ ast_start: proc(tokens: [+]Token) -> Ast {
 	ast.index = 0;
 	ast.scopes = array_new(Scope);
 	ast.types = array_new(Type);
-	strings: Strings_Map = Strings_Map{0}; // cannot do this in one line at the moment
+	strings: Strings_Map = Strings_Map{0}; // NOTE: cannot do this in one line at the moment
 	ast.strings = strings;
 	ast.root_block = create_block(&ast, true, 0 - 1);
 	

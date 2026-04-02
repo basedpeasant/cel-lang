@@ -18,6 +18,7 @@ pub enum Operation {
     Sub,
     Mul,
     Div,
+    Or,
     LogicalOr,
     Gt,
     Gte,
@@ -157,7 +158,8 @@ pub struct MatchNode {
     pub match_type: MatchKind,
     pub fields: Vec<(Option<Token>, Type)>,
     pub subject: VariableDeclNode,
-    pub blocks: Vec<BlockNode>
+    pub blocks: Vec<BlockNode>,
+    pub needs_deref: bool
     // pub var: Token
 }
 
@@ -288,6 +290,7 @@ fn op_to_string(op: Operation) -> &'static str {
         Operation::Gt => ">",
         Operation::Lte => "<=",
         Operation::Lt => "<",
+        Operation::Or => "|",
         Operation::LogicalOr => "||",
         Operation::And => "&",
         Operation::Reference => "&",
@@ -679,6 +682,7 @@ fn get_op(token: &Token) -> Operation {
         TokenType::Slash => Operation::Div,
         TokenType::Star  => Operation::Mul,
         TokenType::Assign => Operation::Assign,
+        TokenType::Or  => Operation::Or,
         TokenType::LogicalOr  => Operation::LogicalOr,
         TokenType::Equal => Operation::Equal,
         TokenType::NotEqual => Operation::NotEqual,
@@ -695,16 +699,17 @@ fn get_op(token: &Token) -> Operation {
 
 fn get_prec(ast: &Ast, op: TokenType) -> i32 {
     match op {
-        TokenType::OpenSquare => 10,
-        TokenType::Dot => 9,
-        TokenType::Star | TokenType::Slash => 8,
-        TokenType::Plus | TokenType::Sub => 7,
+        TokenType::OpenSquare => 11,
+        TokenType::Dot => 10,
+        TokenType::Star | TokenType::Slash => 9,
+        TokenType::Plus | TokenType::Sub => 8,
         TokenType::Gt
         | TokenType::Gte
         | TokenType::Lt
-        | TokenType::Lte => 6,
+        | TokenType::Lte => 7,
         TokenType::Equal
-        | TokenType::NotEqual => 5,
+        | TokenType::NotEqual => 6,
+        TokenType::Or => 5,
         TokenType::LogicalOr => 4,
         TokenType::Ampersand => 3,
         TokenType::Assign => 2,
@@ -1325,7 +1330,7 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                     let peek = ast.get_peek().unwrap();
                     // declaration
                     if peek.tt == TokenType::Proc {
-                        assert!(root, "inner functions are not supported currently");
+                        assert!(root, "inner functions are not supported currently\nCurrent_token: {:?}", peek);
                         let proc = create_proc(ast, ast.scopes[block.scope].id, name);
                         block.statements.push(Statement::Declaration(DeclNode::Proc(proc)));
                     } else if peek.tt == TokenType::Type {
@@ -1443,6 +1448,7 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                     Some(var) => var,
                     None => panic!("Could not find \"{}\"", subject_token.tok)
                 };
+                let mut needs_deref = false;
                 let fields;
                 match subject.type_ {
                     Type::Choice(ref _attributes, ref choice_type) => {
@@ -1461,6 +1467,31 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                             }
                         }
                     },
+                    Type::Pointer(ref type_) => {
+                        needs_deref = true;
+                        match &**type_ {
+                            Type::Choice(_attributes, choice_type) => {
+                                fields = choice_type.fields.clone();
+                            },
+                            Type::Custom(_attributes, custom_type) => {
+                                // check if actually a custom type or if its a choice type
+                                let r#type = get_ast_type(&ast.types, &custom_type.name.as_ref().unwrap().tok);
+                                match r#type {
+                                    Type::Choice(_attributes, choice_type) => {
+                                        fields = choice_type.fields;
+                                    }
+                                    _ => {
+                                        println!("{:?}", r#type);
+                                        panic!("Currently only support for choice types in matches")
+                                    }
+                                }
+                            },
+                            _ => {
+                                println!("{:?}", subject.type_);
+                                panic!("cannot match on a non-choice type variable for the moment")
+                            }
+                        }
+                    }
                     _ => {
                         println!("{:?}", subject.type_);
                         panic!("cannot match on a non-choice type variable for the moment")
@@ -1496,8 +1527,16 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                             (Type::DynamicArray(_), Type::DynamicArray(_)) => index = i as i32,
                             (Type::Array(_), Type::Array(_)) => index = i as i32,
                             (Type::Slice(_), Type::Slice(_)) => index = i as i32,
-                            (Type::Custom(_, _), Type::Custom(_, _)) => index = i as i32,
-                            (Type::Choice(_, _), Type::Choice(_, _)) => index = i as i32,
+                            // TODO: for choices with all custom structs the tags are incorrectly all set to
+                            // the last index e.g. all tags of a choice type with 6 structs will have index set to 6 for
+                            // all of them which is obviously not desirable. this is where it needs to be fixed!
+                            // TODO: the actual names need to be compared
+                            (Type::Custom(_field_type_name, fields), Type::Custom(_member_type_name, member_fields)) => {
+                                if fields.name.as_ref().unwrap().tok == member_fields.name.as_ref().unwrap().tok {
+                                    index = i as i32;
+                                }
+                            },
+                            (Type::Choice(_, _), Type::Choice(_, _)) => todo!(""),
                             _ => {},
                         }
                     }
@@ -1514,12 +1553,12 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                     let field_scope = &mut ast.scopes[field_block.scope];
                     let new_var = VariableDeclNode {
                         symbol: var.clone(),
-                        rhs: Some(Expression::Binary(BinaryOpNode {
+                        rhs: Some(Expression::Reference(Box::new(Expression::Binary(BinaryOpNode {
                             lhs: Box::new(Expression::Variable(VariableNode { symbol: subject.symbol.clone() })),
                             rhs: Box::new(Expression::Variable(VariableNode { symbol: create_token(-1, -1, format!("_{}", index), "generated".to_string()) })),
                             op: Operation::Access
-                        })),
-                        type_: field_type,
+                        })))),
+                        type_: Type::Pointer(Box::new(field_type)),
                         is_arg: false
                     };
                     field_scope.map.insert(var.tok.clone(), new_var.clone());
@@ -1540,6 +1579,7 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                                 fields,
                                 subject: subject.clone(),
                                 blocks,
+                                needs_deref
                                 // var
                             }
                         )

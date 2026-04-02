@@ -1,0 +1,17 @@
+
+Generator: type struct {
+    file: *FILE,
+    current_scope: u32,
+    scopes: [+]u32,
+    //procs: [+]ProcNodeHeader
+    //types: [+]Type
+    indentation_level: u8,
+    //strings: HashMap
+    //string_map: HashMap
+    //main_declaration: string // NOTE: this is for when different args are provided for argc/argv
+}
+
+
+codegen_start: proc(*Ast) {
+    
+}

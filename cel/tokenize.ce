@@ -392,7 +392,7 @@ tokenize: proc(src: *string, filename: string) -> [+]Token {
 				x = x + 1;
 				c = src.ptr[i];
 				if i >= src.length + 1 {
-					panic("unreachable (in directive loop)");
+					panic("unreachable (in directive loop)", #FILE, #LINE);
 				}
 				p = src.ptr[i + 1];
 			}
@@ -416,7 +416,7 @@ tokenize: proc(src: *string, filename: string) -> [+]Token {
 				sb_clear(&current_string);
 			} else {
 				printf("%s".ptr, current_string.chars);
-                panic("Not implemented directive for this: ");
+                panic("Not implemented directive for this: ", #FILE, #LINE);
 			}
 			free(tmp.ptr);
 		} else if is_delim(c) {
@@ -599,11 +599,17 @@ get_tt_string_repr: proc(tt: u8) -> string {
 	} else if tt == TK_MATCH {
 		return "TK_MATCH";
 	} else {
-		panic("unreachable (get_tt_string_repr)");
+		panic("unreachable (get_tt_string_repr)", #FILE, #LINE);
 	}
 }
 
-print_tokens: proc(tokens: *Token) {
+// print_token: proc(token: *Token) {
+// 	t: *Token = token;
+// 	tt_str: string = get_tt_string_repr(t.tt);
+// 	printf("Token: %s [%s](%d:%d)(%s)\n".ptr, t.tok.ptr, tt_str.ptr, t.x, t.y, t.filename.ptr);
+// }
+
+print_tokens: proc(tokens: [+]Token) {
 	len: u32 = array_size(tokens);
 	for i: i32 = 0; i < len; i = i + 1 {
 		token: Token = tokens[i];

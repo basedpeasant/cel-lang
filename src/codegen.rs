@@ -269,6 +269,7 @@ impl Codegen for Expression {
                     Operation::Sub => g.file.write(b" - ").unwrap(),
                     Operation::Mul => g.file.write(b" * ").unwrap(),
                     Operation::Assign => g.file.write(b" = ").unwrap(),
+                    Operation::Or => g.file.write(b" | ").unwrap(),
                     Operation::LogicalOr => g.file.write(b" || ").unwrap(),
                     Operation::NotEqual => g.file.write(b" != ").unwrap(),
                     Operation::Equal => g.file.write(b" == ").unwrap(),
@@ -517,9 +518,14 @@ impl Codegen for MatchNode {
     fn walk(&self, g: &mut Generator) {
         //TODO: support other kinds of match
         assert!(self.match_type == MatchKind::Choice);
-        g.file.write(format!("switch({}._tag)\n", self.subject.symbol.tok).as_bytes()).unwrap();
+        if self.needs_deref {
+            g.file.write(format!("switch({}->_tag)\n", self.subject.symbol.tok).as_bytes()).unwrap();
+        } else {
+            g.file.write(format!("switch({}._tag)\n", self.subject.symbol.tok).as_bytes()).unwrap();
+        }
         print_indentations(&mut g.file, g.indentation_level);
         g.file.write(b"{\n").unwrap();
+        assert!(self.blocks.len() == self.fields.len(), "Number of items must match the number of fields in the choice node");
         for (i, field) in self.fields.iter().enumerate() {
             print_indentations(&mut g.file, g.indentation_level);
             g.file.write(format!("case {}: {{\n", i).as_bytes()).unwrap();
