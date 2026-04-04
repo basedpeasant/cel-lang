@@ -31,7 +31,8 @@ pub enum Operation {
     ArrayIndex,
     Access,
     Not,
-    And
+    And,
+    Mod
 }
 
 #[derive(Debug, Clone)]
@@ -296,6 +297,7 @@ fn op_to_string(op: Operation) -> &'static str {
         Operation::Reference => "&",
         Operation::Access => ".",
         Operation::Not => "!",
+        Operation::Mod => "%",
         Operation::ArrayIndex => panic!("Array indexing \"[]\" is not a binary operation")
     }
 }
@@ -693,6 +695,7 @@ fn get_op(token: &Token) -> Operation {
         TokenType::OpenSquare => Operation::ArrayIndex,
         TokenType::Dot => Operation::Access,
         TokenType::Ampersand => Operation::And,
+        TokenType::Percent => Operation::Mod,
         _ => panic!("Unknown Operator \"{}\"", token.tok)
     }
 }
@@ -701,7 +704,7 @@ fn get_prec(ast: &Ast, op: TokenType) -> i32 {
     match op {
         TokenType::OpenSquare => 11,
         TokenType::Dot => 10,
-        TokenType::Star | TokenType::Slash => 9,
+        TokenType::Star | TokenType::Slash | TokenType::Percent => 9,
         TokenType::Plus | TokenType::Sub => 8,
         TokenType::Gt
         | TokenType::Gte
@@ -836,6 +839,9 @@ fn create_variable_declaration(ast: &mut Ast, scope: usize, name: Token, skip_sc
             // for codegen purposes
             match &mut r {
                 Expression::Array(arr) => {
+                    if !(size >= arr.elements.len()) {
+                        println!("{:?}", ast.get_current_token().unwrap());
+                    }
                     assert!(size >= arr.elements.len(), "Excess elements in array initialization");
                     arr.size = Some(size);
                 }

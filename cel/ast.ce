@@ -104,10 +104,36 @@ Number_Node: type struct {
 	val: i64
 }
 
+OP_ADD: i32 = 10;
+OP_SUB: i32 = 11;
+OP_MUL: i32 = 12;
+OP_DIV: i32 = 13;
+OP_OR: i32 = 14;
+OP_LOGICAL_OR: i32 = 15;
+OP_GT: i32 = 16;
+OP_GTE: i32 = 17;
+OP_LT: i32 = 18;
+OP_LTE: i32 = 19;
+OP_EQUAL: i32 = 20;
+OP_NOT_EQUAL: i32 = 21;
+OP_REFERENCE: i32 = 22;
+OP_ASSIGN: i32 = 23;
+OP_ARRAY_INDEX: i32 = 24;
+OP_ACCESS: i32 = 25;
+OP_NOT: i32 = 26;
+OP_AND: i32 = 27;
+
+Binary_Node: type struct {
+    op: i32,
+    lhs: *Expression,
+    rhs: *Expression
+}
+
+// NOTE: DUE TO THE WAY WE ARE CURRENTLY DOING THIS THE ORDER FOR THIS MUST STAY THE SAME
 Expression: type choice {
-    // Index(IndexNode),
-    // Binary(BinaryOpNode),
+    Binary_Node,
     Number_Node,
+    // Index(IndexNode),
     // Variable(VariableNode),
     // Call(CallNode),
     // String(StringLiteral),
@@ -416,7 +442,213 @@ print_type: proc(var_type: Type) {
 	}
 }
 
-create_block: proc(ast: *Ast, root: bool, parent_scope: i32) -> Block_Node {
+// utility to convert string to i64
+// NOTE: this proc assumes that the string is a known integer
+// ALSO might not be correct for all text types
+strtoi: proc(str: string) -> i64 {
+    num: i64 = 0;
+    base: i32 = 1;
+    for i: i32 = str.length - 1; i >= 0; i = i - 1 {
+        c: u8 = str.ptr[i];
+
+        c_num: i64 = c - 48;
+        if c_num < 0 || c_num > 9 {
+            printf("%zu\n".ptr, c);
+            panic("invalid digit during strtoi", #FILE, #LINE);
+        }
+
+        num = c_num * base + num;
+        base = base * 10;
+    }
+    return num;
+}
+
+parse_primary: proc(ast: *Ast, scope: u32) -> Expression {
+    current_token: *Token = get_current_token(ast); 
+    if current_token.tt == TK_NUMBER {
+        num: Number_Node = Number_Node{ strtoi(current_token.tok) };
+        ret: Expression = Expression{ num };
+        advance(ast);
+        return ret;
+    } else {
+        panic("(Parse Primary) Unexpected Token", #FILE, #LINE);
+    }
+}
+
+get_op_string: proc(op: i32) -> string {
+    if op == OP_ADD {
+        return "+";
+    } else if op == OP_SUB {
+        return "-";
+    } else if op == OP_MUL {
+        return "*";
+    } else if op == OP_DIV {
+        return "/";
+    } else if op == OP_OR {
+        return "|";
+    } else if op == OP_LOGICAL_OR {
+        return "||";
+    } else if op == OP_GT {
+        return ">";
+    } else if op == OP_GTE {
+        return ">=";
+    } else if op == OP_LT {
+        return "<";
+    } else if op == OP_LTE {
+        return "<=";
+    } else if op == OP_EQUAL {
+        return "==";
+    } else if op == OP_NOT_EQUAL {
+        return "!=";
+    } else if op == OP_REFERENCE {
+        return "&";
+    } else if op == OP_ASSIGN {
+        return "=";
+    } else if op == OP_ARRAY_INDEX {
+        return "[]";
+    } else if op == OP_ACCESS {
+        return ".";
+    } else if op == OP_NOT {
+        return "!";
+    } else if op == OP_AND {
+        return "&";
+    } else {
+        todo("print for get_op_string", #FILE, #LINE);
+    }
+}
+
+// NOTE: this is because we don't have negative numbers
+PREC_SENTINEL: i32 = 1024;
+
+get_op: proc(token: *Token) -> i32 {
+    if token.tt == TK_PLUS {
+        return OP_ADD;
+    } else if token.tt == OP_ADD {
+        return OP_ADD;
+    } else if token.tt == OP_SUB {
+        return OP_SUB;
+    } else if token.tt == OP_MUL {
+        return OP_MUL;
+    } else if token.tt == OP_DIV {
+        return OP_DIV;
+    } else if token.tt == OP_OR {
+        return OP_OR;
+    } else if token.tt == OP_LOGICAL_OR {
+        return OP_LOGICAL_OR;
+    } else if token.tt == OP_GT {
+        return OP_GT;
+    } else if token.tt == OP_GTE {
+        return OP_GTE;
+    } else if token.tt == OP_LT {
+        return OP_LT;
+    } else if token.tt == OP_LTE {
+        return OP_LTE;
+    } else if token.tt == OP_EQUAL {
+        return OP_EQUAL;
+    } else if token.tt == OP_NOT_EQUAL {
+        return OP_NOT_EQUAL;
+    } else if token.tt == OP_REFERENCE {
+        return OP_REFERENCE;
+    } else if token.tt == OP_ASSIGN {
+        return OP_ASSIGN;
+    } else if token.tt == OP_ARRAY_INDEX {
+        return OP_ARRAY_INDEX;
+    } else if token.tt == OP_ACCESS {
+        return OP_ACCESS;
+    } else if token.tt == OP_NOT {
+        return OP_NOT;
+    } else if token.tt == OP_AND {
+        return OP_AND;
+    } else {
+        panic("Unknown Operator", #FILE, #LINE);
+    }
+}
+
+get_prec: proc(ast: *Ast, token: *Token) -> i32 {
+    // TODO: other ops
+    if token.tt == TK_OPEN_SQUARE {
+        return 11;
+    } else if token.tt == TK_DOT {
+        return 10;
+    } else if token.tt == TK_STAR || token.tt == TK_SLASH {
+        return 9;
+    } else if token.tt == TK_PLUS || token.tt == TK_SUB {
+        return 8;
+    } else if token.tt == TK_SEMICOLON    || 
+            token.tt == TK_COMMA        ||
+            token.tt == TK_CLOSE_PAREN  ||
+            token.tt == TK_CLOSE_SQUARE ||
+            token.tt == TK_OPEN_CURLY   ||
+            token.tt == TK_CLOSE_CURLY  
+    {
+        return PREC_SENTINEL; 
+    } else {
+        printf("Unknown Operator '%s'".ptr, token.tok);
+    }
+}
+
+// NOTE/TODO: THIS IS EXTREMELY HACKY AND MUST BE CHANGED AS SOON AS BETTER DX FOR CHOICES APPEAR
+// NOTE: ORDER MUST NOT CHANGE
+get_expr_tag: proc(expr_: *Expression) -> i32 {
+    expr: *Expression = expr_;
+    match _e := expr {
+        Binary_Node => {
+            return 0;
+        }
+        Number_Node => {
+            return 1;
+        }
+    }
+}
+
+ast_create_binary: proc(op: i32, lhs: Expression, rhs: Expression) -> Binary_Node {
+    lhs_alloc: *Expression = calloc(1, sizeof(Expression));
+    rhs_alloc: *Expression = calloc(1, sizeof(Expression));
+    memcpy(lhs_alloc, &lhs, sizeof(Expression));
+    memcpy(rhs_alloc, &rhs, sizeof(Expression));
+    lhs_alloc._tag = get_expr_tag(&lhs);
+    rhs_alloc._tag = get_expr_tag(&rhs);
+    ret: Binary_Node = Binary_Node{op, lhs_alloc, rhs_alloc};
+    return ret;
+}
+
+ast_create_expr_with_prec: proc(ast: *Ast, min_prec: i32, scope: u32) -> Expression {
+    lhs: Expression = parse_primary(ast, scope);
+    // TODO: parse_porstfix
+    for true {
+        op_token: *Token = get_current_token(ast);
+        if op_token == 0 {
+            break;
+        }
+        prec: i32 = get_prec(ast, op_token);
+
+        // NOTE: this is because we don't have negative numbers lol
+        if prec == PREC_SENTINEL || prec < min_prec {
+            break;
+        }
+
+        // TODO: check if this actually succeeded
+        advance(ast);
+        // if success { // TODO: something like this
+        //     return lhs
+        // }
+
+        rhs: Expression = ast_create_expr_with_prec(ast, prec, scope);
+   
+        bin: Binary_Node = ast_create_binary(get_op(op_token), lhs, rhs);
+        tmp: Expression = Expression {bin};
+        lhs = tmp;
+
+        // TODO : parse_postfix
+    }
+    return lhs;
+}
+
+ast_create_expr: proc(ast: *Ast, scope: u32) -> Expression {
+    return ast_create_expr_with_prec(ast, 0, scope);
+}
+
+create_block: proc(ast: *Ast, root: bool, parent_scope: u32) -> Block_Node {
 	block: Block_Node;
 	block.statements = array_new(Statement);
 	block.scope = create_new_scope(ast, parent_scope);
@@ -433,6 +665,7 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: i32) -> Block_Node {
 			}
 		}
 		if current_token.tt == TK_WORD {
+            rhs: *Expression = 0;
 			// expression or Decl
 			name: *Token = current_token;
 			peek: *Token = get_peek(ast);
@@ -446,7 +679,11 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: i32) -> Block_Node {
                         // parse RHS if it exists
                         ct: *Token = get_current_token(ast); // ct = current_token
                         if ct.tt == TK_ASSIGN {
-                            todo("Need to parse rhs; not implemented yet", #FILE, #LINE);
+                            advance(ast);
+                            r: Expression = ast_create_expr(ast, block.scope);
+                            rhs = calloc(1, sizeof(Expression));
+                            memcpy(rhs, &r, sizeof(Expression));
+                            ast_match(ast, TK_SEMICOLON, #FILE, #LINE);
                         } else {
                             ast_match(ast, TK_SEMICOLON, #FILE, #LINE); // needs to be the end of the statement otherwise
                         }
@@ -472,7 +709,7 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: i32) -> Block_Node {
 						todo("Type_Custom not implemented yet", #FILE, #LINE);
 					}
 				}
-				var_decl: Variable_Decl_Node = Variable_Decl_Node{ name, 0, stmt_type, false };
+				var_decl: Variable_Decl_Node = Variable_Decl_Node{ name, rhs, stmt_type, false };
 				decl: Decl_Node = Decl_Node{ var_decl };
 				stmt: Statement = Statement{ decl };
 				array_append(block.statements, stmt);
@@ -501,6 +738,7 @@ print_indentations: proc(n: i32) {
 	printf("%s".ptr, sb.chars);
 	sb_free(&sb);
 }
+
 //Block {
 //  [0]
 //    Proc Declaration:
@@ -511,8 +749,36 @@ print_indentations: proc(n: i32) {
 //            Variable Declaration:
 //              name: "a"
 //              type: i32
-//              initializer: (none)
-//        }
+//              initializer:
+//                BinaryOp: +
+//                  lhs:
+//                    Number: 34
+//                  rhs:
+//                    Number: 35
+ 
+
+print_expression: proc(expr_: *Expression, indentations: i32) {
+    expr: *Expression = expr_; // NOTE/TODO: have to do this because of bug with compiler
+    match e := expr {
+        Binary_Node => {
+            print_indentations(indentations);
+            op_str: string = get_op_string(e.op);
+            printf("BinaryOp: %s\n".ptr, op_str.ptr);
+            print_indentations(indentations + 2);
+            printf("lhs:\n".ptr);
+            print_expression(e.lhs, indentations + 4);
+            print_indentations(indentations + 2);
+            printf("rhs:\n".ptr);
+            print_expression(e.rhs, indentations + 4);
+            // print_indentations(indentations);
+            // printf("Binary_Node: %zu\n".ptr, e.val);
+        }
+        Number_Node => {
+            print_indentations(indentations);
+            printf("Number: %zu\n".ptr, e.val);
+        }
+    }
+}
 
 print_decl: proc(decl: *Decl_Node, indentations: i32) {
 	tmp: *Decl_Node = decl;
@@ -531,7 +797,10 @@ print_decl: proc(decl: *Decl_Node, indentations: i32) {
 					name_str: string = token_symbol.tok;
 					printf("name: '%s'\n".ptr, name_str.ptr);
                     if decl_.rhs != 0 {
-                        todo("Type_Builtin printing rhs (print_decl)", #FILE, #LINE);
+                        print_indentations(indentations + 4);
+                        printf("Initializer:\n".ptr);
+                        print_expression(decl_.rhs, indentations + 6);
+                        // todo("Type_Builtin printing rhs (print_decl)", #FILE, #LINE);
                     } else {
                         print_indentations(indentations + 4);
                         printf("Initializer: (none)\n".ptr);

@@ -281,6 +281,7 @@ impl Codegen for Expression {
                     Operation::Reference => g.file.write(b"&").unwrap(),
                     Operation::And => g.file.write(b"&").unwrap(),
                     Operation::Not => g.file.write(b"!").unwrap(),
+                    Operation::Mod => g.file.write(b"%").unwrap(),
                     Operation::ArrayIndex => unreachable!("Array index should not be in a binary operation")
                 };
                 bin.rhs.walk(g);
@@ -896,6 +897,7 @@ pub fn codegen_start(ast: &Ast) {
     let output = std::process::Command::new("cc")
         // .arg("-ffreestanding")
         // .arg("-nostdlib")
+        .arg("-std=c99")
         .arg("-fno-builtin")
         .arg("-ggdb")
         .arg("out.c")
