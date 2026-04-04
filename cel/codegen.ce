@@ -1,17 +1,190 @@
 
 Generator: type struct {
-    file: *FILE,
+    output: *String_Builder,
     current_scope: u32,
     scopes: [+]u32,
-    //procs: [+]ProcNodeHeader
+    procs: [+]Proc_Header_Node,
     //types: [+]Type
-    indentation_level: u8,
+    indentation_level: i32,
     //strings: HashMap
     //string_map: HashMap
     //main_declaration: string // NOTE: this is for when different args are provided for argc/argv
 }
 
+write_start: proc(g: *Generator) {
+    sb_push_str(g.output, "typedef enum {\n");
+    sb_push_str(g.output, "   false = 0,\n");
+    sb_push_str(g.output, "   true = 1\n");
+    sb_push_str(g.output, "} __Bool;\n");
+    sb_push_str(g.output, "#define NULL 0\n");
+    sb_push_str(g.output, "#define bool __Bool\n");
+    sb_push_str(g.output, "#define false false\n");
+    sb_push_str(g.output, "#define true true\n");
+    sb_push_str(g.output, "extern int printf(const char* fmt, ...);\n");
+    sb_push_str(g.output, "extern int sprintf(char* str, const char* format, ...);\n");
+    sb_push_str(g.output, "void _start();\n");
 
-codegen_start: proc(*Ast) {
+    cel_main_call: string;
+    // generating the headers
+    for i: i32 = 0; i < array_size(g.procs); i = i + 1 {
+        procedure: *Proc_Header_Node = &g.procs[i];
+        procedure_name: *Token = procedure.name;
+        if strcmp(procedure_name.tok, "main") {
+            // TODO: determine the kind of cel_main (_cel_main() or _cel_main(args: []string))
+            cel_main: string = "void _cel_main();\n";
+            cel_main_call = "\t_cel_main();\n";
+            sb_push_str(g.output, cel_main);
+            continue;
+        }
+        if procedure.return_type == 0 {
+            sb_push_str(g.output, "void ");
+        } else {
+            todo("not yet implemented return types (Codegen)", #FILE, #LINE);
+        }
+        sb_push_str(g.output, procedure_name.tok);
+        sb_push(g.output, '(');
+        // TODO: args
+        for i: i32 = 0; i < array_size(procedure.args); i = i + 1 {
+            arg: *Variable_Decl_Node = &procedure.args[i];
+            todo("not yet implemented procedure arguments (Codegen)", #FILE, #LINE);
+        }
+        sb_push_str(g.output, ");\n");
+    }
+
+    // write the c main
+    sb_push_str(g.output, "int main(int argc, char** argv) {\n");
+    sb_push_str(g.output, cel_main_call);
+    sb_push_str(g.output, "}\n");
+}
+
+compile: proc(_x: i32) {
+    args_len: i32 = 7;
+    args: [7]*u8 = [ 
+        "cc".ptr, 
+        "-fno-builtin".ptr,
+        "-ggdb".ptr,
+        "out.c".ptr, 
+        "-o".ptr,
+        "out".ptr,
+        0
+    ];
+    printf("Running ".ptr);
+    for i: i32 = 0; i < args_len; i = i + 1 {
+        printf("%s ".ptr, args[i]);
+    }
+    printf("\n".ptr);
+
+    res: i32 = run_process("cc", args);
+    printf("status: %d\n".ptr, res);
+}
+
+output_indentations: proc(g: *Generator) {
+    for i: i32 = 0; i < g.indentation_level; i = i + 1 {
+        sb_push_str(g.output, "    ");
+    }
+}
+
+get_c_type: proc(type__: Type) -> string {
+    type_: Type = type__; // NOTE/TODO: this is only here cus of a bug
+    match t := type_ {
+        Type_Builtin => {
+            if t.kind == TYPE_U8 {
+                return "unsigned char";
+            } else if t.kind == TYPE_U16 {
+                return "unsigned short";
+            } else if t.kind == TYPE_U32 {
+                return "unsigned int";
+            } else if t.kind == TYPE_U64 {
+                return "unsigned long";
+            } else if t.kind == TYPE_I8 {
+                return "char";
+            } else if t.kind == TYPE_I16 {
+                return "short";
+            } else if t.kind == TYPE_I32 {
+                return "int";
+            } else if t.kind == TYPE_I64 {
+                return "long";
+            } else if t.kind == TYPE_BOOL {
+                return "bool";
+            } else if t.kind == TYPE_STRING {
+                return "string";
+            } else if t.kind == TYPE_VOID_PTR {
+                return "void*";
+            } else {
+                printf("UNKNOWN TYPE %d\n".ptr, t.kind);
+                assert(false, "Unhandled TYPE", #FILE, #LINE);
+            }
+        }
+        Type_Pointer => {
+            todo("get_c_type (Type_Pointer)", #FILE, #LINE);
+        }
+        Type_Proc => {
+            todo("get_c_type (Type_Proc)", #FILE, #LINE);
+        }
+        Type_Array => {
+            todo("get_c_type (Type_Array)", #FILE, #LINE);
+        }
+        Type_Dynamic_Array => {
+            todo("get_c_type (Type_Dynamic_Array)", #FILE, #LINE);
+        }
+        Type_Choice => {
+            todo("get_c_type (Type_Choice)", #FILE, #LINE);
+        }
+        Type_Custom => {
+            todo("get_c_type (Type_Custom)", #FILE, #LINE);
+        }
+    } 
+}
+
+walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
+    todo("Codegen for Variable_Decl_Node (walk_variable_decl)", #FILE, #LINE);
+}
+
+walk_decl: proc(g: *Generator, decl_: *Decl_Node) {
+    decl: *Decl_Node = decl_; // NOTE/TODO: this is because of bug lol
+    match n := decl {
+        Variable_Decl_Node => {
+            walk_variable_decl(g, n);
+        }
+    }
+    todo("Codegen for Decl_Node (walk_decl)", #FILE, #LINE);
+}
+
+walk_block: proc(g: *Generator, block: *Block_Node) {
+    save: u32 = g.current_scope;
+    g.indentation_level = g.indentation_level + 1;
+
+    for i: i32 = 0; i < array_size(block.statements); i = i + 1 {
+        statement: Statement = block.statements[i];
+        if block.scope != 0 {
+            output_indentations(g);
+        }
+        match n := statement {
+            Expression_Statement => {
+                todo("Codegen for Expression_Statement (walk_block)", #FILE, #LINE);
+            }
+            Decl_Node => {
+                walk_decl(g, n);
+            }
+        }
+    }
+}
+
+codegen_start: proc(ast: *Ast) {
+    g: *Generator = calloc(1, sizeof(Generator));
+    sb: *String_Builder = calloc(1, sizeof(String_Builder));
+    g.procs = ast.procs;
+    g.output = sb;
+    g.indentation_level = 0;
     
+    write_start(g);
+
+    //TODO: walk root block
+    walk_block(g, &ast.root_block);
+
+    write_string_builder_to_file(sb, "out.c");
+    compile(0);
+    
+    free(sb);
+    free(g);
 }

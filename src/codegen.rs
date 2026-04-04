@@ -896,6 +896,7 @@ pub fn codegen_start(ast: &Ast) {
     let output = std::process::Command::new("cc")
         // .arg("-ffreestanding")
         // .arg("-nostdlib")
+        .arg("-fno-builtin")
         .arg("-ggdb")
         .arg("out.c")
         .arg("-o")

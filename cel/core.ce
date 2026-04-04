@@ -12,6 +12,11 @@ open: @extern proc(pathname: *u8, flags: i32, mode: u32) -> i32;
 close: @extern proc(fd: i32) -> i32;
 memcpy: @extern proc(dest: void_ptr, src: void_ptr, n: u32) -> void_ptr;
 strlen: @extern proc(s: *u8) -> i32;
+fork: @extern proc() -> i32;
+execvp: @extern proc(file: *u8, argv: **u8) -> i32;
+wait3: @extern proc(wstatus: *i32, options: i32, rusage: void_ptr) -> i32;
+wait4: @extern proc(pid: i32, wstatus: *i32, options: i32, rusage: void_ptr) -> i32;
+
 
 O_RDONLY: i32 = 0;
 O_WRONLY: i32 = 1;
@@ -24,7 +29,7 @@ string: type struct {
 }
 
 unreachable: proc(msg: string, file: string, line: u32) {
-	//NOTE: this __FILE__ and __LINE__ don't make sense here
+    //NOTE: this __FILE__ and __LINE__ don't make sense here
 	printf("%s:%d: UNREACHABLE: %s\n".ptr, file.ptr, line, msg.ptr);
 	exit(101);
 }
@@ -38,6 +43,12 @@ todo: proc(msg: string, file: string, line: u32) {
 panic: proc(msg: string, file: string, line: u32) {
 	//NOTE: this __FILE__ and __LINE__ don't make sense here
 	printf("%s:%d: panic: %s\n".ptr, file.ptr, line, msg.ptr);
+	exit(101);
+}
+
+assert: proc(condition: bool, msg: string, file: string, line: u32) {
+    // TODO: print assertion condition maybe?
+	printf("%s:%d: assertion failed: %s\n".ptr, file.ptr, line, msg.ptr);
 	exit(101);
 }
 
@@ -152,6 +163,14 @@ write_string_to_file: proc(content: string, filename: string) {
     close(fd);
 }
 
+write_string_builder_to_file: proc(sb: *String_Builder, filename: string) {
+    if sb.chars[sb.length - 1] != 0 {
+        sb_push(sb, 0);
+    }
+    tmp_str: string = string{ sb.length - 1, sb.chars };
+    write_string_to_file(tmp_str, filename);
+}
+
 fgetc: proc(fd: i32) -> u8 {
 	c: [1]u8;
 	bytes_read: i32 = read(fd, &c, sizeof(c));
@@ -197,6 +216,15 @@ sb_push: proc(sb: *String_Builder, c: u8) {
     sb.length = sb.length + 1;
 }
 
+sb_push_str: proc(sb: *String_Builder, str: string) {
+    for i: i32 = 0; i < str.length; i = i + 1 {
+        if str.ptr[i] == 0 {
+            break;
+        }
+        sb_push(sb, str.ptr[i]);
+    }
+}
+
 sb_to_string: proc(sb: *String_Builder) -> string {
 	ptr: *u8;
     ptr = calloc(sb.length + 1, sizeof(char));
@@ -231,4 +259,22 @@ strcmp: proc(a: string, b: string) -> bool {
 	}
 	return true;
 }
+
+run_process: proc(name: string, args: **u8) -> i32 {
+    pid: i32 = fork(0);
+    if pid == 0 {
+        // envp: [1]*u8 = [ 0 ];
+        execvp("cc".ptr, args);
+        printf("This is a test %d\n".ptr, pid);
+    }
+    // TODO: continue here
+    status: i32;
+    ret: i32 = wait4(pid, &status, 0, 0);   // blocking, specific child
+    // if (ret > 0) {
+    //     if (WIFEXITED(status))
+    //         printf("Child exited with %d\n".ptr, WEXITSTATUS(status));
+    // }
+    return status;
+}
+
 

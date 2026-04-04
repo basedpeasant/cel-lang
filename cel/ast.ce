@@ -36,6 +36,8 @@ Block_Node: type struct {
 	scope: u32
 }
 
+// TODO: is this even needed? rn its not used at all
+//       Consider removing
 Type_Proc: type struct {
 	attributes: [+]Attribute,
 	args: [+]Variable_Decl_Node,
@@ -136,11 +138,11 @@ Expression_Statement: type choice {
 	// ExpressionStatementWithBlock
 }
 
-Proc_Node: type struct {
-	name: Token,
-	block: Block_Node,
+Proc_Header_Node: type struct {
+	name: *Token,
+	// block: Block_Node,
 	args: [+]Variable_Decl_Node,
-	return_Type: *Type,
+	return_type: *Type,
 	// attributes: [+]Attribute // need enum support
 }
 
@@ -164,6 +166,7 @@ Ast: type struct {
 	types: [+]Type,
 	strings: Strings_Map,
 	current_scope: u32,
+    procs: [+]Proc_Header_Node
 }
 
 find_name_in_scope: proc(ast: *Ast, scope_id: i32, name: string) -> *Variable_Decl_Node {
@@ -453,6 +456,8 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: i32) -> Block_Node {
 					}
 					Type_Proc => {
 						type_.name = name;
+                        proc_header: Proc_Header_Node = Proc_Header_Node{ name, type_.args, 0 };
+                        array_append(ast.procs, proc_header);
 					}
 					Type_Array => {
 						todo("Type_Array not implemented yet", #FILE, #LINE);
@@ -618,8 +623,10 @@ ast_start: proc(tokens: [+]Token) -> Ast {
 	ast.index = 0;
 	ast.scopes = array_new(Scope);
 	ast.types = array_new(Type);
+    ast.procs = array_new(Proc_Header_Node);
 	strings: Strings_Map = Strings_Map{0}; // NOTE: cannot do this in one line at the moment
 	ast.strings = strings;
 	ast.root_block = create_block(&ast, true, 0 - 1);
 	
+    return ast;
 }

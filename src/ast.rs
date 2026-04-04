@@ -1349,6 +1349,10 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                         block.statements.push(Statement::Declaration(DeclNode::Var(variable_decl)));
                     }
                 } else if is_operator(&peek.tt) || peek.tt == TokenType::OpenParen {
+                    if root {
+                        // for debug purposes
+                        println!("{:?}", current_token);
+                    }
                     assert!(!root, "Expressions are not allowed in the top level scope");
                     // expression statement
                     let expr = create_expr(ast, ast.scopes[block.scope].id);
