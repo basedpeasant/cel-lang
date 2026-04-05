@@ -438,11 +438,13 @@ tokenize: proc(src: *string, filename: string) -> [+]Token {
 			if is_double_delim(c, p) {
 				x = x + 1;
 				sb_push(&current_string, c);
+				x = x + 1;
 				sb_push(&current_string, p);
 
 				token: Token = create_token(x, y, sb_to_string(&current_string), filename);
 				array_append(ret, token);
 				sb_clear(&current_string);				
+                i = i + 1;
 			} else if c == '"' {
 				i = i + 1; x = x + 1;
 				c = src.ptr[i];

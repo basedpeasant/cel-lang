@@ -4,10 +4,9 @@ Generator: type struct {
     current_scope: u32,
     scopes: [+]u32,
     procs: [+]Proc_Header_Node,
+    strings: [+]String_Literal,
     //types: [+]Type
     indentation_level: i32,
-    //strings: HashMap
-    //string_map: HashMap
     main_declaration: string // NOTE: this is for when different args are provided for argc/argv
 }
 
@@ -23,6 +22,11 @@ write_start: proc(g: *Generator) {
     sb_push_str(g.output, "extern int printf(const char* fmt, ...);\n");
     sb_push_str(g.output, "extern int sprintf(char* str, const char* format, ...);\n");
     sb_push_str(g.output, "void _start();\n");
+    // TODO: remove once you can make your own structs
+    sb_push_str(g.output, "typedef struct {\n");
+    sb_push_str(g.output, "    int length;\n");
+    sb_push_str(g.output, "    const char* ptr;\n");
+    sb_push_str(g.output, "} string;\n");
 
     cel_main_call: string;
     // generating the headers
@@ -39,17 +43,49 @@ write_start: proc(g: *Generator) {
         if procedure.return_type == 0 {
             sb_push_str(g.output, "void ");
         } else {
-            todo("not yet implemented return types (Codegen)", #FILE, #LINE);
+            return_type: Type = procedure.return_type[0];
+            c_type_str: string = get_c_type(return_type);
+            sb_push_str(g.output, c_type_str);
+            sb_push(g.output, ' ');
         }
         sb_push_str(g.output, procedure_name.tok);
         sb_push(g.output, '(');
         // TODO: args
         for i: i32 = 0; i < array_size(procedure.args); i = i + 1 {
             arg: *Variable_Decl_Node = &procedure.args[i];
-            todo("not yet implemented procedure arguments (Codegen)", #FILE, #LINE);
+            walk_variable_decl(g, arg);
+            if i != array_size(procedure.args) - 1 {
+                sb_push_str(g.output, ", ");
+            }
         }
         sb_push_str(g.output, ");\n");
     }
+
+    // generate all the string_literals
+    for i: i32 = 0; i < array_size(g.strings); i = i + 1 {
+        sb_push_str(g.output, "static const string ");
+        index: string = itostr(i);
+        sb_push(g.output, 's');
+        sb_push_str(g.output, index);
+        string_literal: String_Literal = g.strings[i];
+        str: string = string_literal.str;
+        sb_push_str(g.output, " = {");
+        length_str: string = itostr(str.length);
+        sb_push_str(g.output, length_str);
+        sb_push_str(g.output, ", (const char[");
+        sb_push_str(g.output, length_str);
+        sb_push_str(g.output, "]){");
+        for j: i32 = 0; j < str.length; j = j + 1 {
+            sb_push_str(g.output, "'");
+            sb_push(g.output, str.ptr[j]);
+            sb_push_str(g.output, "'");
+            if j < str.length - 1 {
+                sb_push_str(g.output, ", ");
+            }
+        }
+        sb_push_str(g.output, "}};\n");
+    }
+
     g.main_declaration = "void _cel_main()"; // TODO: change this to be dynamic later
 
     // write the c main
@@ -144,13 +180,22 @@ walk_proc: proc(g: *Generator, proc_: *Type_Proc) {
         sb_push_str(g.output, g.main_declaration);
     } else {
         if proc_.return_type != 0 {
-            todo("codegen for proc return type", #FILE, #LINE);
+            // TODO: using [0] for dereference lol
+            c_type_string: string = get_c_type(proc_.return_type[0]);
+            sb_push_str(g.output, c_type_string);
+            sb_push(g.output, ' ');
         } else {
             sb_push_str(g.output, "void ");
         }
         sb_push_str(g.output, name.tok);
         sb_push_str(g.output, "(");
-        // TODO: arguments
+        for i: i32 = 0; i < array_size(proc_.args); i = i + 1 {
+            arg: *Variable_Decl_Node = &proc_.args[i];
+            walk_variable_decl(g, arg);
+            if i != array_size(proc_.args) - 1 {
+                sb_push_str(g.output, ", ");
+            }
+        }
         sb_push_str(g.output, ")\n");
     }
     sb_push_str(g.output, "{\n");
@@ -164,6 +209,10 @@ itostr: proc(i: i64) -> string {
     buffer: [20]u8;
     remainder: i64 = 0;
     index: i32 = 0;
+
+    if i == 0 {
+        return "0";
+    }
 
     for i != 0 {
         remainder = i % 10;
@@ -187,10 +236,74 @@ walk_expression: proc(g: *Generator, expr_: *Expression) {
     expr: *Expression = expr_;
     match e := expr {
         Binary_Node => {
-            todo("walking expression binary_node", #FILE, #LINE);
-        }
+            walk_expression(g, e.lhs);
+            if e.op == OP_ADD {
+                sb_push_str(g.output, " + ");
+            } else if OP_SUB {
+                sb_push_str(g.output, " - ");
+            } else if OP_MUL {
+                sb_push_str(g.output, " * ");
+            } else if OP_DIV {
+                sb_push_str(g.output, " / ");
+            } else if OP_OR {
+                sb_push_str(g.output, " | ");
+            } else if OP_LOGICAL_OR {
+                sb_push_str(g.output, " || ");
+            } else if OP_GT {
+                sb_push_str(g.output, " > ");
+            } else if OP_GTE {
+                sb_push_str(g.output, " >= ");
+            } else if OP_LT {
+                sb_push_str(g.output, " < ");
+            } else if OP_LTE {
+                sb_push_str(g.output, " <= ");
+            } else if OP_EQUAL {
+                sb_push_str(g.output, " == ");
+            } else if OP_NOT_EQUAL {
+                sb_push_str(g.output, " != ");
+            } else if OP_REFERENCE {
+                sb_push_str(g.output, " & ");
+            } else if OP_ASSIGN {
+                sb_push_str(g.output, " = ");
+            } else if OP_ARRAY_INDEX {
+                unreachable("Array indexing should be handled elsewhere", #FILE, #LINE);
+            } else if OP_ACCESS {
+                unreachable("Access operation should be handled elsewhere", #FILE, #LINE);
+            } else if OP_NOT {
+                sb_push_str(g.output, " ! ");
+            } else if OP_AND {
+                sb_push_str(g.output, " & ");
+            } else {
+                panic("Operator codegen not implemented yet", #FILE, #LINE);
+            }
+            walk_expression(g, e.rhs);
+        },
         Number_Node => {
             sb_push_str(g.output, itostr(e.val));
+        },
+        Variable_Node => {
+            token: *Token = e.symbol;
+            str: string = token.tok; 
+            sb_push_str(g.output, str);
+        },
+        Call_Node => {
+            token: *Token = e.name;
+            str: string = token.tok; 
+            sb_push_str(g.output, str);
+            sb_push_str(g.output, "(");
+            for i: i32 = 0; i < array_size(e.args); i = i + 1 {
+                walk_expression(g, &e.args[i]);
+                if i != array_size(e.args) - 1 {
+                    sb_push_str(g.output, ", ");
+                }
+            }
+            sb_push_str(g.output, ")");
+        },
+        String_Literal => {
+            string_literal: string = e.str;
+            sb_push(g.output, 's');
+            index: string = itostr(e.index);
+            sb_push_str(g.output, index);
         }
     }
 }
@@ -210,7 +323,6 @@ walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
                 sb_push_str(g.output, " = ");
                 walk_expression(g, variable_decl.rhs);
             }
-            sb_push_str(g.output, ";\n");
         }
         Type_Pointer => {
             todo("implement walk for Type_Pointer", #FILE, #LINE);
@@ -239,6 +351,31 @@ walk_decl: proc(g: *Generator, decl_: *Decl_Node) {
         Variable_Decl_Node => {
             walk_variable_decl(g, n);
             var_type: Type = n.var_type;
+            // TODO: change this once DX gets better lol
+            //       cus this is obviously insanely stupid
+            //       we're putting a ; for every decl thats
+            //       not a proc
+            match _n := var_type {
+                Type_Builtin => {
+                    sb_push_str(g.output, ";\n");
+                }
+                Type_Pointer => {
+                    sb_push_str(g.output, ";\n");
+                }
+                Type_Proc => {}
+                Type_Array => {
+                    sb_push_str(g.output, ";\n");
+                }
+                Type_Dynamic_Array => {
+                    sb_push_str(g.output, ";\n");
+                }
+                Type_Choice => {
+                    sb_push_str(g.output, ";\n");
+                }
+                Type_Custom => {
+                    sb_push_str(g.output, ";\n");
+                }
+            }
         }
     }
 }
@@ -261,7 +398,16 @@ walk_block: proc(g: *Generator, block: *Block_Node) {
                 // NOTE: semi-colon ; is added in walk_decl instead of here because
                 //       its too troublesome to check if the decl_node is a proc or not
             }
+            Return_Node => {
+                sb_push_str(g.output, "return ");
+                walk_expression(g, n.expr);
+                sb_push_str(g.output, ";\n");
+            }
         }
+        // TODO/NOTE: ideally the semicolon would be added here instead of all the other places
+        //            but because the proc are part of the variable decl and the choice 
+        //            DX isn't good enough yet this is the only way we can do it
+        // sb_push_str(g.output, ";\n");
     }
 
     g.indentation_level = g.indentation_level - 1;
@@ -273,6 +419,7 @@ codegen_start: proc(ast: *Ast) {
     g.procs = ast.procs;
     g.output = sb;
     g.indentation_level = 0;
+    g.strings = ast.strings;
     
     write_start(g);
 

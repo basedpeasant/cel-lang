@@ -526,7 +526,7 @@ impl Codegen for MatchNode {
         }
         print_indentations(&mut g.file, g.indentation_level);
         g.file.write(b"{\n").unwrap();
-        assert!(self.blocks.len() == self.fields.len(), "Number of items must match the number of fields in the choice node");
+        assert!(self.blocks.len() == self.fields.len(), "Number of items must match the number of fields in the choice node for this match: {:?}", self.token);
         for (i, field) in self.fields.iter().enumerate() {
             print_indentations(&mut g.file, g.indentation_level);
             g.file.write(format!("case {}: {{\n", i).as_bytes()).unwrap();

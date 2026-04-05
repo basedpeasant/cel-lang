@@ -160,7 +160,8 @@ pub struct MatchNode {
     pub fields: Vec<(Option<Token>, Type)>,
     pub subject: VariableDeclNode,
     pub blocks: Vec<BlockNode>,
-    pub needs_deref: bool
+    pub needs_deref: bool,
+    pub token: Token, // used for debugging purposes
     // pub var: Token
 }
 
@@ -1054,6 +1055,7 @@ fn extract_type(ast: &mut Ast) -> Type {
                             ast.advance();
                         } else if current_token.tt != TokenType::CloseCurly {
                             // TODO: maek this error better lol
+                            println!("{:?}", current_token);
                             panic!("Seems you have missed a comma!");
                         }
                         fields.push((name, r#type));
@@ -1080,6 +1082,7 @@ fn extract_type(ast: &mut Ast) -> Type {
                             ast.advance();
                         } else if current_token.tt != TokenType::CloseCurly {
                             // TODO: maek this error better lol
+                            println!("{:?}", current_token);
                             panic!("Seems you have missed a comma!");
                         }
                         fields.push((None, r#type));
@@ -1445,6 +1448,7 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
             },
             TokenType::Match => {
                 // currently only choice matches work TODO: implement others
+                let save = current_token.clone(); // saved for debugging purposes
                 ast.advance();
                 let var = ast.get_current_token().unwrap().clone();
                 ast.advance();
@@ -1589,7 +1593,8 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                                 fields,
                                 subject: subject.clone(),
                                 blocks,
-                                needs_deref
+                                needs_deref,
+                                token: save
                                 // var
                             }
                         )
