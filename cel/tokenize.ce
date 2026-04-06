@@ -60,6 +60,7 @@ TK_BREAK:         u8 = 48;
 TK_FAT_ARROW:     u8 = 49;
 TK_CHOICE:        u8 = 50;
 TK_MATCH:         u8 = 51;
+TK_LOGICAL_AND:   u8 = 52;
 
 clone_string: proc(str: string) -> string {
 	ptr: *u8;
@@ -189,6 +190,8 @@ get_double_delim_tt: proc(c: u8, p: u8) -> u8 {
         return TK_NOT_EQUAL;
     } else if c == '|' && p == '|' {
         return TK_LOGICAL_OR;
+    } else if c == '&' && p == '&' {
+        return TK_LOGICAL_AND;
     } else if c == '=' && p == '>' {
         return TK_FAT_ARROW;
     } else {
@@ -538,6 +541,8 @@ get_tt_string_repr: proc(tt: u8) -> string {
 		return "TK_OR";
 	} else if tt == TK_LOGICAL_OR {
 		return "TK_LOGICAL_OR";
+    } else if tt == TK_LOGICAL_AND {
+        return "TK_LOGICAL_AND";
 	} else if tt == TK_EQUAL {
 		return "TK_EQUAL";
 	} else if tt == TK_NOT_EQUAL {

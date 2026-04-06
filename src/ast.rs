@@ -32,6 +32,7 @@ pub enum Operation {
     Access,
     Not,
     And,
+    LogicalAnd,
     Mod
 }
 
@@ -294,6 +295,7 @@ fn op_to_string(op: Operation) -> &'static str {
         Operation::Lt => "<",
         Operation::Or => "|",
         Operation::LogicalOr => "||",
+        Operation::LogicalAnd => "&&",
         Operation::And => "&",
         Operation::Reference => "&",
         Operation::Access => ".",
@@ -659,6 +661,14 @@ fn parse_primary(ast: &mut Ast, scope: usize) -> Expression {
             let ret = Expression::Array(arr);
             return ret;
         },
+        TokenType::OpenParen => {
+            ast.advance();
+            let expr = create_expr(ast, scope);
+            ast.match_token(TokenType::CloseParen);
+            ast.advance();
+
+            return parse_postfix(ast, expr, scope);
+        }
         TokenType::Ampersand => {
             ast.advance();
             let peek = ast.get_peek().unwrap().clone();
@@ -687,6 +697,7 @@ fn get_op(token: &Token) -> Operation {
         TokenType::Assign => Operation::Assign,
         TokenType::Or  => Operation::Or,
         TokenType::LogicalOr  => Operation::LogicalOr,
+        TokenType::LogicalAnd  => Operation::LogicalAnd,
         TokenType::Equal => Operation::Equal,
         TokenType::NotEqual => Operation::NotEqual,
         TokenType::Gt => Operation::Gt,
@@ -703,30 +714,24 @@ fn get_op(token: &Token) -> Operation {
 
 fn get_prec(ast: &Ast, op: TokenType) -> i32 {
     match op {
-        TokenType::OpenSquare => 11,
-        TokenType::Dot => 10,
-        TokenType::Star | TokenType::Slash | TokenType::Percent => 9,
-        TokenType::Plus | TokenType::Sub => 8,
-        TokenType::Gt
-        | TokenType::Gte
-        | TokenType::Lt
-        | TokenType::Lte => 7,
-        TokenType::Equal
-        | TokenType::NotEqual => 6,
-        TokenType::Or => 5,
-        TokenType::LogicalOr => 4,
-        TokenType::Ampersand => 3,
-        TokenType::Assign => 2,
-        TokenType::SemiColon
-        | TokenType::Comma
-        | TokenType::CloseParen
-        | TokenType::CloseSquare
-        | TokenType::OpenCurly
-        | TokenType::CloseCurly  => -1,
+        TokenType::OpenSquare => 14,   // highest
+        TokenType::Dot        => 13,
+        TokenType::Star | TokenType::Slash | TokenType::Percent => 12,
+        TokenType::Plus | TokenType::Sub => 11,
+        // comparisons
+        TokenType::Gt | TokenType::Gte | TokenType::Lt | TokenType::Lte => 10,
+        TokenType::Equal | TokenType::NotEqual => 9,
+        // logical
+        TokenType::LogicalAnd => 8,
+        TokenType::Or | TokenType::LogicalOr => 7,   // adjust as needed
+        TokenType::Ampersand => 6,
+        TokenType::Assign => 2,       // lowest (right-associative usually)
+        TokenType::SemiColon | TokenType::Comma | TokenType::CloseParen |
+        TokenType::CloseSquare | TokenType::OpenCurly | TokenType::CloseCurly => -1,
         _ => {
-            println!("{:?}", ast.get_current_token());
-            panic!("Unknown Operator \"{:?}\"", op);
-        },
+            // panic or return -1
+            -1
+        }
     }
 }
 
@@ -754,6 +759,7 @@ fn create_expr_with_prec(ast: &mut Ast, min_prec: i32, scope: usize) -> Expressi
         //     return lhs
         // }
 
+        
         let rhs = create_expr_with_prec(ast, prec, scope);
 
         lhs = Expression::Binary(ast_create_binary(get_op(&op_token), lhs, rhs));

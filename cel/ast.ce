@@ -131,6 +131,7 @@ OP_ARRAY_INDEX: i32 = 24;
 OP_ACCESS: i32 = 25;
 OP_NOT: i32 = 26;
 OP_AND: i32 = 27;
+OP_LOGICAL_AND: i32 = 28;
 
 Binary_Node: type struct {
     op: i32,
@@ -554,6 +555,13 @@ parse_primary: proc(ast: *Ast, scope: u32) -> Expression {
         ast.strings_index = ast.strings_index + 1;
         advance(ast);
         return ret;
+    } else if current_token.tt == TK_OPEN_PAREN {
+        advance(ast) ;
+        expr: Expression = ast_create_expr(ast, scope);
+        ast_match(ast, TK_CLOSE_PAREN, #FILE, #LINE);
+        advance(ast);
+        //TODO: handle postfix operators for bracketed expressions as well when implemented
+        return expr;
     } else {
         panic("(Parse Primary) Unexpected Token", #FILE, #LINE);
     }
@@ -572,6 +580,8 @@ get_op_string: proc(op: i32) -> string {
         return "|";
     } else if op == OP_LOGICAL_OR {
         return "||";
+    } else if op == OP_LOGICAL_AND {
+        return "&&";
     } else if op == OP_GT {
         return ">";
     } else if op == OP_GTE {
@@ -607,43 +617,45 @@ PREC_SENTINEL: i32 = 1024;
 get_op: proc(token: *Token) -> i32 {
     if token.tt == TK_PLUS {
         return OP_ADD;
-    } else if token.tt == OP_ADD {
-        return OP_ADD;
-    } else if token.tt == OP_SUB {
+    } else if token.tt == TK_SUB {
         return OP_SUB;
-    } else if token.tt == OP_MUL {
+    } else if token.tt == TK_STAR {
         return OP_MUL;
-    } else if token.tt == OP_DIV {
+    } else if token.tt == TK_SLASH {
         return OP_DIV;
-    } else if token.tt == OP_OR {
+    } else if token.tt == TK_OR {
         return OP_OR;
-    } else if token.tt == OP_LOGICAL_OR {
+    } else if token.tt == TK_LOGICAL_OR {
         return OP_LOGICAL_OR;
-    } else if token.tt == OP_GT {
+    } else if token.tt == TK_LOGICAL_AND {
+        return OP_LOGICAL_AND;
+    } else if token.tt == TK_GT {
         return OP_GT;
-    } else if token.tt == OP_GTE {
+    } else if token.tt == TK_GTE {
         return OP_GTE;
-    } else if token.tt == OP_LT {
+    } else if token.tt == TK_LT {
         return OP_LT;
-    } else if token.tt == OP_LTE {
+    } else if token.tt == TK_LTE {
         return OP_LTE;
-    } else if token.tt == OP_EQUAL {
+    } else if token.tt == TK_EQUAL {
         return OP_EQUAL;
-    } else if token.tt == OP_NOT_EQUAL {
+    } else if token.tt == TK_NOT_EQUAL {
         return OP_NOT_EQUAL;
-    } else if token.tt == OP_REFERENCE {
+    } else if token.tt == TK_AMPERSAND {
         return OP_REFERENCE;
-    } else if token.tt == OP_ASSIGN {
+    } else if token.tt == TK_ASSIGN {
         return OP_ASSIGN;
-    } else if token.tt == OP_ARRAY_INDEX {
+    } else if token.tt == TK_OPEN_SQUARE {
         return OP_ARRAY_INDEX;
-    } else if token.tt == OP_ACCESS {
+    } else if token.tt == TK_DOT {
         return OP_ACCESS;
-    } else if token.tt == OP_NOT {
+    } else if token.tt == TK_NOT {
         return OP_NOT;
-    } else if token.tt == OP_AND {
+    } else if token.tt == TK_AMPERSAND {
         return OP_AND;
     } else {
+        str: string = token.tok;
+        printf("%s\n".ptr, str.ptr);
         panic("Unknown Operator", #FILE, #LINE);
     }
 }

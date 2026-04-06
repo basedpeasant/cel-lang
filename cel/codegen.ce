@@ -236,47 +236,51 @@ walk_expression: proc(g: *Generator, expr_: *Expression) {
     expr: *Expression = expr_;
     match e := expr {
         Binary_Node => {
+            sb_push_str(g.output, "(");
             walk_expression(g, e.lhs);
             if e.op == OP_ADD {
                 sb_push_str(g.output, " + ");
-            } else if OP_SUB {
+            } else if e.op == OP_SUB {
                 sb_push_str(g.output, " - ");
-            } else if OP_MUL {
+            } else if e.op == OP_MUL {
                 sb_push_str(g.output, " * ");
-            } else if OP_DIV {
+            } else if e.op == OP_DIV {
                 sb_push_str(g.output, " / ");
-            } else if OP_OR {
+            } else if e.op == OP_OR {
                 sb_push_str(g.output, " | ");
-            } else if OP_LOGICAL_OR {
+            } else if e.op == OP_LOGICAL_OR {
                 sb_push_str(g.output, " || ");
-            } else if OP_GT {
+            } else if e.op == OP_LOGICAL_AND {
+                sb_push_str(g.output, " && ");
+            } else if e.op == OP_GT {
                 sb_push_str(g.output, " > ");
-            } else if OP_GTE {
+            } else if e.op == OP_GTE {
                 sb_push_str(g.output, " >= ");
-            } else if OP_LT {
+            } else if e.op == OP_LT {
                 sb_push_str(g.output, " < ");
-            } else if OP_LTE {
+            } else if e.op == OP_LTE {
                 sb_push_str(g.output, " <= ");
-            } else if OP_EQUAL {
+            } else if e.op == OP_EQUAL {
                 sb_push_str(g.output, " == ");
-            } else if OP_NOT_EQUAL {
+            } else if e.op == OP_NOT_EQUAL {
                 sb_push_str(g.output, " != ");
-            } else if OP_REFERENCE {
+            } else if e.op == OP_REFERENCE {
                 sb_push_str(g.output, " & ");
-            } else if OP_ASSIGN {
+            } else if e.op == OP_ASSIGN {
                 sb_push_str(g.output, " = ");
-            } else if OP_ARRAY_INDEX {
+            } else if e.op == OP_ARRAY_INDEX {
                 unreachable("Array indexing should be handled elsewhere", #FILE, #LINE);
-            } else if OP_ACCESS {
+            } else if e.op == OP_ACCESS {
                 unreachable("Access operation should be handled elsewhere", #FILE, #LINE);
-            } else if OP_NOT {
+            } else if e.op == OP_NOT {
                 sb_push_str(g.output, " ! ");
-            } else if OP_AND {
+            } else if e.op == OP_AND {
                 sb_push_str(g.output, " & ");
             } else {
                 panic("Operator codegen not implemented yet", #FILE, #LINE);
             }
             walk_expression(g, e.rhs);
+            sb_push_str(g.output, ")");
         },
         Number_Node => {
             sb_push_str(g.output, itostr(e.val));

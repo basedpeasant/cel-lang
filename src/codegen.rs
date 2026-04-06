@@ -262,6 +262,7 @@ impl Codegen for Expression {
                     // bin.rhs.walk(g); // NOTE: might need it if at the end of ^ it is a non Access binary operation
                     return;
                 }
+                g.file.write(b"(").unwrap();
                 bin.lhs.walk(g);
                 match bin.op {
                     Operation::Add => g.file.write(b" + ").unwrap(),
@@ -271,6 +272,7 @@ impl Codegen for Expression {
                     Operation::Assign => g.file.write(b" = ").unwrap(),
                     Operation::Or => g.file.write(b" | ").unwrap(),
                     Operation::LogicalOr => g.file.write(b" || ").unwrap(),
+                    Operation::LogicalAnd => g.file.write(b" && ").unwrap(),
                     Operation::NotEqual => g.file.write(b" != ").unwrap(),
                     Operation::Equal => g.file.write(b" == ").unwrap(),
                     Operation::Gte => g.file.write(b" >= ").unwrap(),
@@ -285,6 +287,7 @@ impl Codegen for Expression {
                     Operation::ArrayIndex => unreachable!("Array index should not be in a binary operation")
                 };
                 bin.rhs.walk(g);
+                g.file.write(b")").unwrap();
             },
             Expression::Number(num) => {
                 g.file.write(num.val.to_string().as_bytes()).unwrap();
