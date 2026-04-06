@@ -283,8 +283,12 @@ impl Codegen for Expression {
                     Operation::Reference => g.file.write(b"&").unwrap(),
                     Operation::And => g.file.write(b"&").unwrap(),
                     Operation::Not => g.file.write(b"!").unwrap(),
-                    Operation::Mod => g.file.write(b"%").unwrap(),
-                    Operation::ArrayIndex => unreachable!("Array index should not be in a binary operation")
+                    Operation::Mod => g.file.write(b" % ").unwrap(),
+                    Operation::LeftShift => g.file.write(b" << ").unwrap(),
+                    Operation::RightShift => g.file.write(b" >> ").unwrap(),
+                    Operation::ArrayIndex => unreachable!("Array index should not be in a binary operation"),
+                    Operation::BitwiseNot => g.file.write(b"~").unwrap(),
+                    Operation::BitwiseXor => g.file.write(b" ^ ").unwrap(),
                 };
                 bin.rhs.walk(g);
                 g.file.write(b")").unwrap();
@@ -425,7 +429,11 @@ impl Codegen for Expression {
             Expression::Not(expr) => {
                 g.file.write(b"!").unwrap();
                 expr.walk(g);
-            }
+            },
+            Expression::BitwiseNot(expr) => {
+                g.file.write(b"~").unwrap();
+                expr.walk(g);
+            },
         } 
     }
 }
@@ -656,6 +664,7 @@ typedef enum {
 #define bool __Bool
 #define	false	false
 #define	true	true
+extern void* calloc(unsigned long n, unsigned long size);
 extern int printf(const char* fmt, ...);
 extern int sprintf(char* str, const char* format, ...);
 void _start();

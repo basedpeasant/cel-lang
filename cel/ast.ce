@@ -19,7 +19,8 @@ Attribute: type struct {
 
 Type_Custom: type struct {
 	name: *Token,
-	fields: [+]Field
+	fields: [+]Field,
+	attributes: [+]Attribute
 }
 
 Type_Builtin: type struct {
@@ -73,7 +74,7 @@ Type: type choice {
 }
 
 Field: type struct {
-	name: Token,
+	name: *Token,
 	type_name: Type,
 }
 
@@ -132,6 +133,15 @@ OP_ACCESS: i32 = 25;
 OP_NOT: i32 = 26;
 OP_AND: i32 = 27;
 OP_LOGICAL_AND: i32 = 28;
+OP_LEFT_SHIFT: i32 = 29;
+OP_RIGHT_SHIFT: i32 = 30;
+OP_BITWISE_XOR: i32 = 31;
+OP_BITWISE_NOT: i32 = 32;
+
+Unary_Node: type struct {
+    op: i32,
+    expr: *Expression
+}
 
 Binary_Node: type struct {
     op: i32,
@@ -150,7 +160,8 @@ Expression: type choice {
     Number_Node,
     Variable_Node,
     Call_Node,
-    String_Literal
+    String_Literal,
+    Unary_Node
     // Index(IndexNode),
     // Variable(VariableNode),
     // Call(CallNode),
@@ -208,7 +219,7 @@ Ast: type struct {
 	tokens: [+]Token,
 	index: u32,
 	scopes: [+]Scope,
-	types: [+]Type,
+    types: [+]Type,
 	strings: [+]String_Literal,
     strings_index: i32,
 	current_scope: u32,
@@ -451,8 +462,47 @@ extract_type: proc(ast: *Ast) -> Type {
 		ret: Type = Type { proc_type };
 		return ret;
 		// todo("handling for Type_Proc", #FILE, #LINE);
-	} else if current_token.tt == TK_STAR {
-		todo("not implemented yet", #FILE, #LINE);
+	} else if current_token.tt == TK_TYPE {
+        // definition of a new type struct
+        advance(ast);
+        current_token: *Token = get_current_token(ast);
+        if current_token.tt == TK_STRUCT {
+            fields: [+]Field = array_new(Field);
+            advance(ast);
+            ast_match(ast, TK_OPEN_CURLY, #FILE, #LINE);
+            advance(ast);
+            for true {
+                current_token: *Token = get_current_token(ast);
+                if current_token.tt == TK_CLOSE_CURLY {
+                    break;
+                }
+                ast_match(ast, TK_WORD, #FILE, #LINE);
+                name: *Token = current_token; 
+                advance(ast);
+                ast_match(ast, TK_COLON, #FILE, #LINE);
+                // TODO: handle attributes
+                advance(ast);
+                field_type: Type = extract_type(ast);
+                current_token = get_current_token(ast);
+                if current_token.tt == TK_COMMA {
+                    advance(ast);
+                } else if current_token.tt != TK_CLOSE_CURLY {
+                    current_token_str: string = current_token.tok;
+                    printf("%s\n".ptr, current_token_str.ptr);
+                    panic("Seems you have missed a comma!", #FILE, #LINE);
+                }
+                field: Field = Field{ name, field_type };
+                array_append(fields, field);
+            }
+            struct_type: Type_Custom = Type_Custom{ 0, fields, array_new(Attribute) };
+            ret: Type = Type{ struct_type }; // set the name later after extract_type
+            return ret;
+        } else if current_token.tt == TK_CHOICE {
+            todo("implement choice types", #FILE, #LINE);
+        }
+    //   } else if current_token.tt == TK_STAR {
+    //       // TODO: why is this here lol
+    // todo("not implemented yet", #FILE, #LINE);
 	} else {
 		current_token_str: string = current_token.tok;
 		printf("%s\n".ptr, current_token_str.ptr);
@@ -490,25 +540,61 @@ print_type: proc(var_type: Type) {
 	}
 }
 
+pow: proc(base: i64, exponent: i64) -> i64 {
+    if exponent < 0 {
+        panic("Language doesn't support negative numbers yet lol", #FILE, #LINE);
+    }
+    num: i64 = 1;
+    for i: i32 = 0; i < exponent; i = i + 1 {
+        num = base * num;
+    }
+    return num;
+}
+
 // utility to convert string to i64
 // NOTE: this proc assumes that the string is a known integer
 // ALSO might not be correct for all text types
 strtoi: proc(str: string) -> i64 {
-    num: i64 = 0;
-    base: i32 = 1;
-    for i: i32 = str.length - 1; i >= 0; i = i - 1 {
-        c: u8 = str.ptr[i];
+    
+    if str.length > 2 && str.ptr[0] == '0' && str.ptr[1] == 'x' {
+        // hex number 
+        num: i64 = 0;
+        base: i32 = 16;
+        for i: i32 = str.length - 1; i > 1; i = i - 1 {
+            c: u8 = str.ptr[i];
 
-        c_num: i64 = c - 48;
-        if c_num < 0 || c_num > 9 {
-            printf("%zu\n".ptr, c);
-            panic("invalid digit during strtoi", #FILE, #LINE);
+            c_num: i64;
+            if c >= 48 && c <= 57 {
+                c_num = c - 48;
+            } else if c >= 65 && c <= 70 {
+                c_num = c - 55;
+            } else if c >= 97 && c <= 102 {
+                c_num = c - 87;
+            } else {
+                printf("%c\n".ptr, c);
+                unreachable("Should not be here because this should get caught in tokenization", #FILE, #LINE);
+            }
+            num = num + (c_num * pow(base, str.length - i + 1));
         }
+        return num;
+    } else {
+        // decimal number
+        num: i64 = 0;
+        base: i32 = 1;
+        for i: i32 = str.length - 1; i >= 0; i = i - 1 {
+            c: u8 = str.ptr[i];
 
-        num = c_num * base + num;
-        base = base * 10;
+            c_num: i64 = c - 48;
+            if c_num < 0 || c_num > 9 {
+                printf("%zu\n".ptr, c);
+                panic("invalid digit during strtoi", #FILE, #LINE);
+            }
+
+            num = c_num * base + num;
+            base = base * 10;
+        }
+        return num;
     }
-    return num;
 }
 
 parse_primary: proc(ast: *Ast, scope: u32) -> Expression {
@@ -562,6 +648,21 @@ parse_primary: proc(ast: *Ast, scope: u32) -> Expression {
         advance(ast);
         //TODO: handle postfix operators for bracketed expressions as well when implemented
         return expr;
+    } else if current_token.tt == TK_TILDE     || 
+              current_token.tt == TK_AMPERSAND || 
+              current_token.tt == TK_NOT 
+    {
+        expr_alloc: *Expression = calloc(1, sizeof(Expression));
+        op: i32 = get_op(current_token);
+        advance(ast);
+        expr: Expression = parse_primary(ast, scope);
+        memcpy(expr_alloc, &expr, sizeof(Expression));
+        expr_alloc._tag = get_expr_tag(&expr);
+        tmp_str: string = current_token.tok;
+        printf("TEST: %d:%s\n".ptr, op, tmp_str.ptr);
+        unary: Unary_Node = Unary_Node{ op, expr_alloc }; 
+        ret: Expression = Expression{ unary };
+        return ret;
     } else {
         panic("(Parse Primary) Unexpected Token", #FILE, #LINE);
     }
@@ -606,6 +707,14 @@ get_op_string: proc(op: i32) -> string {
         return "!";
     } else if op == OP_AND {
         return "&";
+    } else if op == OP_LEFT_SHIFT {
+        return "<<";
+    } else if op == OP_RIGHT_SHIFT {
+        return ">>";
+    } else if op == OP_BITWISE_XOR {
+        return "^";
+    } else if op == OP_BITWISE_NOT {
+        return "~";
     } else {
         todo("print for get_op_string", #FILE, #LINE);
     }
@@ -653,6 +762,14 @@ get_op: proc(token: *Token) -> i32 {
         return OP_NOT;
     } else if token.tt == TK_AMPERSAND {
         return OP_AND;
+    } else if token.tt == TK_LEFT_SHIFT {
+        return OP_LEFT_SHIFT;
+    } else if token.tt == TK_RIGHT_SHIFT {
+        return OP_RIGHT_SHIFT;
+    } else if token.tt == TK_HAT {
+        return OP_BITWISE_XOR;
+    } else if token.tt == TK_TILDE {
+        return OP_BITWISE_NOT;
     } else {
         str: string = token.tok;
         printf("%s\n".ptr, str.ptr);
@@ -662,14 +779,18 @@ get_op: proc(token: *Token) -> i32 {
 
 get_prec: proc(ast: *Ast, token: *Token) -> i32 {
     // TODO: other ops
-    if token.tt == TK_OPEN_SQUARE {
+    if token.tt == TK_OPEN_SQUARE || token.tt == TK_DOT {
+        return 12;
+    } else if token.tt == TK_TILDE {
         return 11;
-    } else if token.tt == TK_DOT {
-        return 10;
     } else if token.tt == TK_STAR || token.tt == TK_SLASH {
-        return 9;
+        return 10;
     } else if token.tt == TK_PLUS || token.tt == TK_SUB {
+        return 9;
+    } else if token.tt == TK_LEFT_SHIFT || token.tt == TK_RIGHT_SHIFT {
         return 8;
+    } else if token.tt == TK_HAT {
+        return 7;
     } else if token.tt == TK_SEMICOLON    || 
             token.tt == TK_COMMA        ||
             token.tt == TK_CLOSE_PAREN  ||
@@ -681,6 +802,7 @@ get_prec: proc(ast: *Ast, token: *Token) -> i32 {
     } else {
         str: string = token.tok;
         printf("Unknown Operator '%s'\n".ptr, str.ptr);
+        panic("", #FILE, #LINE);
     }
 }
 
@@ -703,6 +825,9 @@ get_expr_tag: proc(expr_: *Expression) -> i32 {
         },
         String_Literal => {
             return 4;
+        },
+        Unary_Node => {
+            return 5;
         }
     }
 }
@@ -780,6 +905,7 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: u32) -> Block_Node {
 				advance(ast);
 				// Declaration
 				stmt_type: Type = extract_type(ast);
+                skip: bool = false;
 				match type_ := stmt_type {
 					Type_Builtin => {
                         // parse RHS if it exists
@@ -816,13 +942,18 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: u32) -> Block_Node {
 						todo("Type_Choice not implemented yet", #FILE, #LINE);
 					}
 					Type_Custom => {
-						todo("Type_Custom not implemented yet", #FILE, #LINE);
+                        type_.name = name;
+                        array_append(ast.types, stmt_type);
+                        skip = true;
 					}
 				}
-				var_decl: Variable_Decl_Node = Variable_Decl_Node{ name, rhs, stmt_type, false };
-				decl: Decl_Node = Decl_Node{ var_decl };
-				stmt: Statement = Statement{ decl };
-				array_append(block.statements, stmt);
+                if !skip {
+                    // we have this because we don't want to add Type_Custom into the list of statements, they are added to the Ast state and will be generated seperately during the codegen phase 
+                    var_decl: Variable_Decl_Node = Variable_Decl_Node{ name, rhs, stmt_type, false };
+                    decl: Decl_Node = Decl_Node{ var_decl };
+                    stmt: Statement = Statement{ decl };
+                    array_append(block.statements, stmt);
+                }
 			} else {
                 tmp: string = current_token.tok;
                 printf("Unexpected Token: '%s'\n".ptr, tmp.ptr);
@@ -925,6 +1056,14 @@ print_expression: proc(expr_: *Expression, indentations: i32) {
             string_literal: string = e.str;
             print_indentations(indentations);
             printf("String: %s\n".ptr, string_literal.ptr);
+        },
+        Unary_Node => {
+            print_indentations(indentations);
+            op_str: string = get_op_string(e.op);
+            printf("UnaryOp: %s\n".ptr, op_str.ptr);
+            print_indentations(indentations + 2);
+            printf("expr:\n".ptr);
+            print_expression(e.expr, indentations + 4);
         }
     }
 }
@@ -989,7 +1128,18 @@ print_decl: proc(decl: *Decl_Node, indentations: i32) {
 					todo("Type_Choice not implemented (print_decl)", #FILE, #LINE);
 				}
 				Type_Custom => {
-					todo("Type_Custom not implemented (print_decl)", #FILE, #LINE);
+                    print_indentations(indentations + 2);
+                    name_tok: *Token = var_decl_type.name;
+                    name_str: string = name_tok.tok;
+                    printf("Type Definition: %s\n".ptr, name_str.ptr);
+                    for i: i32 = 0; i < array_size(var_decl_type.fields); i = i + 1 {
+                        field: Field = var_decl_type.fields[i];
+                        field_token: *Token = field.name;
+                        field_str: string = field_token.tok;
+                        print_indentations(indentations + 4);
+                        t: string = get_type_string(field.type_name);
+                        printf("%s: %s\n".ptr, field_str.ptr, t.ptr);
+                    }
 				}
 			}
 		}

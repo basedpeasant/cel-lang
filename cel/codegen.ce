@@ -5,9 +5,99 @@ Generator: type struct {
     scopes: [+]u32,
     procs: [+]Proc_Header_Node,
     strings: [+]String_Literal,
-    //types: [+]Type
+    types: [+]Type,
     indentation_level: i32,
     main_declaration: string // NOTE: this is for when different args are provided for argc/argv
+}
+
+generate_types: proc(g: *Generator) {
+    // generating types
+    // TODO: make sure that this is changed once match DX becomes better cus this is really
+    //       ass
+    for i: i32 = 0; i < array_size(g.types); i = i + 1 {
+        new_type: Type = g.types[i];
+        match t := new_type {
+            Type_Builtin => {
+                unreachable("unexpected type in code generation, only custom types and choice types should be here", #FILE, #LINE);
+            },
+            Type_Pointer => {
+                unreachable("unexpected type in code generation, only custom types and choice types should be here", #FILE, #LINE);
+            },
+            Type_Proc => {
+                unreachable("unexpected type in code generation, only custom types and choice types should be here", #FILE, #LINE);
+            },
+            Type_Array => {
+                unreachable("unexpected type in code generation, only custom types and choice types should be here", #FILE, #LINE);
+            },
+            Type_Dynamic_Array => {
+                unreachable("unexpected type in code generation, only custom types and choice types should be here", #FILE, #LINE);
+            },
+            Type_Choice => {
+                todo("Not yet implemented choice yet", #FILE, #LINE);
+            },
+            Type_Custom => {
+                // TODO: attributes
+                if array_size(t.attributes) > 0 {
+                    todo("Need to think more about how attributes work for structs", #FILE, #LINE);
+                }
+                sb_push_str(g.output, "typedef struct ");
+                struct_name: *Token = t.name;
+                struct_name_str: string = struct_name.tok;
+                sb_push_str(g.output, struct_name_str);
+                sb_push(g.output, ' ');
+                sb_push_str(g.output, struct_name_str);
+                sb_push_str(g.output, ";\n");
+            }
+        }
+    }
+
+    for i: i32 = 0; i < array_size(g.types); i = i + 1 {
+        new_type: Type = g.types[i];
+        match t := new_type {
+            Type_Builtin => {
+                unreachable("unexpected type in code generation, only custom types and choice types should be here", #FILE, #LINE);
+            },
+            Type_Pointer => {
+                unreachable("unexpected type in code generation, only custom types and choice types should be here", #FILE, #LINE);
+            },
+            Type_Proc => {
+                unreachable("unexpected type in code generation, only custom types and choice types should be here", #FILE, #LINE);
+            },
+            Type_Array => {
+                unreachable("unexpected type in code generation, only custom types and choice types should be here", #FILE, #LINE);
+            },
+            Type_Dynamic_Array => {
+                unreachable("unexpected type in code generation, only custom types and choice types should be here", #FILE, #LINE);
+            },
+            Type_Choice => {
+                todo("Not yet implemented choice yet", #FILE, #LINE);
+            },
+            Type_Custom => {
+                // TODO: attributes
+                if array_size(t.attributes) > 0 {
+                    todo("Need to think more about how attributes work for structs", #FILE, #LINE);
+                }
+                sb_push_str(g.output, "struct ");
+                struct_name: *Token = t.name;
+                struct_name_str: string = struct_name.tok;
+                sb_push_str(g.output, struct_name_str);
+                sb_push_str(g.output, " {\n");
+                g.indentation_level = g.indentation_level + 1;
+                for i: i32 = 0; i < array_size(t.fields); i = i + 1 {
+                    output_indentations(g);
+                    field: Field = t.fields[i];
+                    c_type: string = get_c_type(field.type_name);
+                    field_name: *Token = field.name;
+                    sb_push_str(g.output, c_type);
+                    sb_push(g.output, ' ');
+                    sb_push_str(g.output, field_name.tok);
+                    sb_push_str(g.output, ";\n");
+                }
+                g.indentation_level = g.indentation_level - 1;
+                sb_push_str(g.output, "};\n");
+            }
+        }
+    }
 }
 
 write_start: proc(g: *Generator) {
@@ -29,6 +119,8 @@ write_start: proc(g: *Generator) {
     sb_push_str(g.output, "} string;\n");
 
     cel_main_call: string;
+    generate_types(g);
+
     // generating the headers
     for i: i32 = 0; i < array_size(g.procs); i = i + 1 {
         procedure: *Proc_Header_Node = &g.procs[i];
@@ -273,9 +365,15 @@ walk_expression: proc(g: *Generator, expr_: *Expression) {
             } else if e.op == OP_ACCESS {
                 unreachable("Access operation should be handled elsewhere", #FILE, #LINE);
             } else if e.op == OP_NOT {
-                sb_push_str(g.output, " ! ");
+                unreachable("Unary operator '!' should not appear here", #FILE, #LINE);
             } else if e.op == OP_AND {
-                sb_push_str(g.output, " & ");
+                unreachable("Unary operator '&' should not appear here", #FILE, #LINE);
+            } else if e.op == OP_LEFT_SHIFT {
+                sb_push_str(g.output, " << ");
+            } else if e.op == OP_RIGHT_SHIFT {
+                sb_push_str(g.output, " >> ");
+            } else if e.op == OP_BITWISE_XOR {
+                sb_push_str(g.output, " ^ ");
             } else {
                 panic("Operator codegen not implemented yet", #FILE, #LINE);
             }
@@ -308,6 +406,21 @@ walk_expression: proc(g: *Generator, expr_: *Expression) {
             sb_push(g.output, 's');
             index: string = itostr(e.index);
             sb_push_str(g.output, index);
+        },
+        Unary_Node => {
+            if e.op == OP_BITWISE_XOR {
+                sb_push_str(g.output, "^");
+            } else if e.op == OP_AND {
+                sb_push_str(g.output, "&");
+            } else if e.op == OP_NOT {
+                sb_push_str(g.output, "!");
+            } else if e.op == OP_BITWISE_NOT {
+                sb_push_str(g.output, "~");
+            } else {
+                printf("%d\n".ptr, e.op);
+                panic("not implemented unary operation yet or invalid unary operation", #FILE, #LINE);
+            }
+            walk_expression(g, e.expr);
         }
     }
 }
@@ -344,7 +457,7 @@ walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
             todo("implement walk for Type_Choice", #FILE, #LINE);
         }
         Type_Custom => {
-            todo("implement walk for Type_Custom", #FILE, #LINE);
+            unreachable("types should not be in the list of statements in any blocks", #FILE, #LINE);
         }
     }
 }
@@ -424,6 +537,7 @@ codegen_start: proc(ast: *Ast) {
     g.output = sb;
     g.indentation_level = 0;
     g.strings = ast.strings;
+    g.types = ast.types;
     
     write_start(g);
 

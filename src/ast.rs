@@ -33,7 +33,11 @@ pub enum Operation {
     Not,
     And,
     LogicalAnd,
-    Mod
+    Mod,
+    LeftShift,
+    RightShift,
+    BitwiseXor,
+    BitwiseNot,
 }
 
 #[derive(Debug, Clone)]
@@ -139,6 +143,7 @@ pub enum Expression {
     Struct(StructDeclarationNode),
     Reference(Box<Expression>), // TODO: this should actually be unary node
     Not(Box<Expression>), // TODO: this should actually be unary node
+    BitwiseNot(Box<Expression>), // TODO: this should actually be unary node
 }
 
 #[derive(Clone)]
@@ -301,6 +306,10 @@ fn op_to_string(op: Operation) -> &'static str {
         Operation::Access => ".",
         Operation::Not => "!",
         Operation::Mod => "%",
+        Operation::LeftShift  => "<<",
+        Operation::RightShift => ">>",
+        Operation::BitwiseXor => "^",
+        Operation::BitwiseNot => "~",
         Operation::ArrayIndex => panic!("Array indexing \"[]\" is not a binary operation")
     }
 }
@@ -545,6 +554,10 @@ fn print_expression(expr: &Expression, level: usize) {
         Expression::Not(expr) => {
             println!("{}Not:", indent(level));
             print_expression(expr, level);
+        },
+        Expression::BitwiseNot(expr) => {
+            println!("{}BitwiseNot:", indent(level));
+            print_expression(expr, level);
         }
     }
 }
@@ -683,7 +696,11 @@ fn parse_primary(ast: &mut Ast, scope: usize) -> Expression {
         TokenType::Not => {
             ast.advance();
             return Expression::Not(Box::new(parse_primary(ast, scope)));
-        }
+        },
+        TokenType::Tilde => {
+            ast.advance();
+            return Expression::BitwiseNot(Box::new(parse_primary(ast, scope)));
+        },
         _ => panic!("(Parse Primary) Unexpected Token \"{:?}\"", current_token)
     }
 }
@@ -708,29 +725,35 @@ fn get_op(token: &Token) -> Operation {
         TokenType::Dot => Operation::Access,
         TokenType::Ampersand => Operation::And,
         TokenType::Percent => Operation::Mod,
+        TokenType::LeftShift => Operation::LeftShift,
+        TokenType::RightShift => Operation::RightShift,
+        TokenType::Tilde => Operation::BitwiseNot,
+        TokenType::Hat => Operation::BitwiseXor,
         _ => panic!("Unknown Operator \"{}\"", token.tok)
     }
 }
 
 fn get_prec(ast: &Ast, op: TokenType) -> i32 {
     match op {
-        TokenType::OpenSquare => 14,   // highest
-        TokenType::Dot        => 13,
-        TokenType::Star | TokenType::Slash | TokenType::Percent => 12,
-        TokenType::Plus | TokenType::Sub => 11,
-        // comparisons
-        TokenType::Gt | TokenType::Gte | TokenType::Lt | TokenType::Lte => 10,
-        TokenType::Equal | TokenType::NotEqual => 9,
-        // logical
+        TokenType::OpenSquare => 19,
+        TokenType::Tilde      => 18,
+        TokenType::Dot        => 17,
+        TokenType::Star | TokenType::Slash | TokenType::Percent => 16,
+        TokenType::Plus | TokenType::Sub => 15,
+        TokenType::LeftShift| TokenType::RightShift => 14,
+        TokenType::Gt | TokenType::Gte | TokenType::Lt | TokenType::Lte => 13,
+        TokenType::Equal | TokenType::NotEqual => 12,
+        TokenType::Ampersand => 11,
+        TokenType::Hat => 10,
+        TokenType::Or => 9,
         TokenType::LogicalAnd => 8,
-        TokenType::Or | TokenType::LogicalOr => 7,   // adjust as needed
-        TokenType::Ampersand => 6,
-        TokenType::Assign => 2,       // lowest (right-associative usually)
+        TokenType::LogicalOr => 7,
+        TokenType::Assign => 2,
         TokenType::SemiColon | TokenType::Comma | TokenType::CloseParen |
         TokenType::CloseSquare | TokenType::OpenCurly | TokenType::CloseCurly => -1,
         _ => {
-            // panic or return -1
-            -1
+            println!("{:?}", op);
+            panic!("Unknown Operator")
         }
     }
 }

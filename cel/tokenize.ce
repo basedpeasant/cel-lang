@@ -61,6 +61,9 @@ TK_FAT_ARROW:     u8 = 49;
 TK_CHOICE:        u8 = 50;
 TK_MATCH:         u8 = 51;
 TK_LOGICAL_AND:   u8 = 52;
+TK_LEFT_SHIFT:    u8 = 53;
+TK_RIGHT_SHIFT:   u8 = 54;
+TK_TILDE:         u8 = 55;
 
 clone_string: proc(str: string) -> string {
 	ptr: *u8;
@@ -137,7 +140,9 @@ get_delim_tt: proc(c: u8) -> u8 {
 		return TK_SINGLE_QUOTE;
 	} else if c == '.' {
 		return TK_DOT;
-	}
+	} else if c == '~' {
+        return TK_TILDE;
+    }
 	return TK_UNKNOWN;
 }
 
@@ -194,6 +199,10 @@ get_double_delim_tt: proc(c: u8, p: u8) -> u8 {
         return TK_LOGICAL_AND;
     } else if c == '=' && p == '>' {
         return TK_FAT_ARROW;
+    } else if c == '>' && p == '>' {
+        return TK_RIGHT_SHIFT;
+    } else if c == '<' && p == '<' {
+        return TK_LEFT_SHIFT;
     } else {
         return TK_UNKNOWN;
     }
@@ -217,6 +226,10 @@ is_double_delim: proc(c: u8, p: u8) -> u8 {
     } else if c == '|' && p == '|' {
         return true;
     } else if c == '=' && p == '>' {
+        return true;
+    } else if c == '>' && p == '>' {
+        return true;
+    } else if c == '<' && p == '<' {
         return true;
     } else {
         return false;
@@ -249,12 +262,34 @@ is_digit: proc(c: u8) -> bool {
 	return false;
 }
 
+is_hex_digit: proc(c: u8) -> bool {
+    if c >= 48 && c <= 57 {
+        return true;
+    } else if c >= 65 && c <= 70 {
+        return true;
+    } else if c >= 97 && c <= 102 {
+        return true;
+    } else {
+        return false;
+    }
+}
+
 is_number: proc(str: string) -> bool {
-	for i: i32 = 0; i < str.length; i = i + 1 {
-		if !is_digit(str.ptr[i]) {
-			return false;
-		}
-	}
+    if str.length > 2 && str.ptr[0] == '0' && str.ptr[1] == 'x' {
+        // Hex
+        // 0 1 2 3 4 5 6 7 8 9 A B C D E F
+        for i: i32 = 2; i < str.length; i = i + 1 {
+            if !is_hex_digit(str.ptr[i]) {
+                return false;
+            }
+        }
+    } else {
+        for i: i32 = 0; i < str.length; i = i + 1 {
+            if !is_digit(str.ptr[i]) {
+                return false;
+            }
+        }
+    }
 	return true;
 }
 
@@ -338,7 +373,9 @@ is_delim: proc(c: u8) -> bool {
 		return true;
 	} else if c == '.' {
 		return true;
-	}
+	} else if c == '~' {
+        return true;
+    }
 	return false;
 }
 
@@ -605,6 +642,12 @@ get_tt_string_repr: proc(tt: u8) -> string {
 		return "TK_CHOICE";
 	} else if tt == TK_MATCH {
 		return "TK_MATCH";
+    } else if tt == TK_LEFT_SHIFT {
+        return "TK_LEFT_SHIFT";
+    } else if tt == TK_RIGHT_SHIFT {
+        return "TK_RIGHT_SHIFT";
+    } else if tt == TK_TILDE {
+        return "TK_TILDE";
 	} else {
 		panic("unreachable (get_tt_string_repr)", #FILE, #LINE);
 	}

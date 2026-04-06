@@ -1,6 +1,6 @@
 use crate::const_assert;
 
-const TOKEN_TYPE_COUNT: i32 = 53;
+const TOKEN_TYPE_COUNT: i32 = 56;
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum TokenType {
     Unknown,
@@ -55,7 +55,10 @@ pub enum TokenType {
     Break,
     Match,
     Choice,
-    Continue
+    Continue,
+    LeftShift,
+    RightShift,
+    Tilde,
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +79,13 @@ pub fn is_operator(tt: &TokenType) -> bool {
         TokenType::Assign => true,
         TokenType::Dot => true,
         TokenType::OpenSquare => true,
+        TokenType::Ampersand => true,
+        TokenType::LogicalAnd => true,
+        TokenType::LogicalOr => true,
+        TokenType::Or => true,
+        TokenType::Not => true,
+        TokenType::LeftShift => true,
+        TokenType::RightShift => true,
         _ => false
     }
 }
@@ -87,7 +97,7 @@ fn is_whitespace(c: char) -> bool {
     }
 }
 
-const_assert!(TOKEN_TYPE_COUNT == 53, "Update: TOKEN_TYPE_COUNT has changed");
+const_assert!(TOKEN_TYPE_COUNT == 56, "Update: TOKEN_TYPE_COUNT has changed");
 fn is_delim(c: char) -> bool {
     match c {
         '@' => true,
@@ -117,6 +127,7 @@ fn is_delim(c: char) -> bool {
         '\'' => true,
         // '\n' => true,
         '.' => true,
+        '~' => true,
         _   => false
     }
 }
@@ -148,11 +159,12 @@ fn get_delim_tt(c: char) -> TokenType {
         '|' => TokenType::Or,
         '\'' =>TokenType::SingleQuote,
         '.' => TokenType::Dot,
+        '~' => TokenType::Tilde,
         _   => TokenType::Unknown
     }
 }
 
-const_assert!(TOKEN_TYPE_COUNT == 53, "Update: TOKEN_TYPE_COUNT has changed");
+const_assert!(TOKEN_TYPE_COUNT == 56, "Update: TOKEN_TYPE_COUNT has changed");
 fn get_keyword_tt(str: &str) -> TokenType {
     match str {
         "for"     => TokenType::For,
@@ -174,7 +186,7 @@ fn get_keyword_tt(str: &str) -> TokenType {
     }
 }
 
-const_assert!(TOKEN_TYPE_COUNT == 53, "Update: TOKEN_TYPE_COUNT has changed");
+const_assert!(TOKEN_TYPE_COUNT == 56, "Update: TOKEN_TYPE_COUNT has changed");
 fn is_double_delim(c: char, p: char) -> bool {
     if c == ':' && p == '=' {
         true
@@ -196,12 +208,16 @@ fn is_double_delim(c: char, p: char) -> bool {
         true
     } else if c == '=' && p == '>' {
         true
+    } else if c == '>' && p == '>' {
+        true
+    } else if c == '<' && p == '<' {
+        true
     } else {
         false
     }
 }
 
-const_assert!(TOKEN_TYPE_COUNT == 53, "Update: TOKEN_TYPE_COUNT has changed");
+const_assert!(TOKEN_TYPE_COUNT == 56, "Update: TOKEN_TYPE_COUNT has changed");
 fn get_double_delim_tt(c: char, p: char) -> TokenType {
     if c == ':' && p == '=' {
         TokenType::ShortAssign
@@ -223,6 +239,10 @@ fn get_double_delim_tt(c: char, p: char) -> TokenType {
         TokenType::LogicalAnd
     } else if c == '=' && p == '>' {
         TokenType::FatArrow
+    } else if c == '>' && p == '>' {
+        TokenType::RightShift 
+    } else if c == '<' && p == '<' {
+        TokenType::LeftShift 
     } else {
         TokenType::Unknown
     }
