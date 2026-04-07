@@ -173,6 +173,13 @@ Expression: type choice {
     // Not(Box<Expression>), // TODO: this should actually be unary node
 }
 
+If_Node: type struct {
+    block: Block_Node,
+    condition: *Expression,
+    next: *If_Node,
+    is_else: bool
+}
+
 For_Node: type struct {
 	block: Block_Node,
 	is_classic_for: bool,
@@ -181,8 +188,8 @@ For_Node: type struct {
 }
 
 Expression_Statement_With_Block: type choice {
-	// IfNode,
-	// ForNode,
+	If_Node,
+	// For_Node,
 	// MatchNode,
 }
 
@@ -190,7 +197,7 @@ Expression_Statement: type choice {
 	// ReturnNode,
 	Expression,
 	// DeferNode,
-	// ExpressionStatementWithBlock
+	Expression_Statement_With_Block
 }
 
 Proc_Header_Node: type struct {
@@ -879,6 +886,49 @@ ast_create_expr: proc(ast: *Ast, scope: u32) -> Expression {
     return ast_create_expr_with_prec(ast, 0, scope);
 }
 
+ast_create_if: proc(ast: *Ast, scope: u32) -> If_Node {
+    skip_condition: bool = false;
+    is_else: bool = false;
+    current_token: *Token = get_current_token(ast);
+    peek: *Token = get_peek(ast);
+
+    //TODO/NOTE: would be cool allowing else to have one statement without the curly braces
+    if current_token.tt == TK_IF {
+        advance(ast);
+    } else if current_token.tt == TK_ELSE && peek.tt == TK_OPEN_CURLY {
+        // first if
+        skip_condition = true; 
+        is_else = true;
+        advance(ast);
+    } else if current_token.tt == TK_ELSE && peek.tt == TK_IF {
+        // else 
+        is_else = true;
+        advance(ast);
+        advance(ast);
+    }
+    
+    condition: *Expression = 0;
+    if !skip_condition {
+        expr: Expression = ast_create_expr(ast, scope);
+        condition = calloc(1, sizeof(Expression));
+        memcpy(condition, &expr, sizeof(Expression));
+    }
+    ast_match(ast, TK_OPEN_CURLY, #FILE, #LINE);
+    advance(ast);
+    if_block: Block_Node = create_block(ast, false, scope);
+    ast_match(ast, TK_CLOSE_CURLY, #FILE, #LINE);
+    peek = get_peek(ast);
+    next: *If_Node = 0;
+    if peek.tt == TK_ELSE {
+        advance(ast);
+        next_if: If_Node = ast_create_if(ast, scope);
+        next = calloc(1, sizeof(If_Node));
+        memcpy(next, &next_if, sizeof(If_Node));
+    }
+    if_node: If_Node = If_Node{ if_block, condition, next, is_else };
+    return if_node;
+}
+
 create_block: proc(ast: *Ast, root: bool, parent_scope: u32) -> Block_Node {
 	block: Block_Node;
 	block.statements = array_new(Statement);
@@ -954,7 +1004,13 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: u32) -> Block_Node {
                     stmt: Statement = Statement{ decl };
                     array_append(block.statements, stmt);
                 }
-			} else {
+			} else if peek.tt == TK_OPEN_PAREN {
+                assert(!root, "Expressions are not allowed in the top level scope", #FILE, #LINE);
+                expr: Expression = ast_create_expr(ast, block.scope);
+                expr_stmt: Expression_Statement = Expression_Statement{ expr };
+                stmt: Statement = Statement{ expr_stmt };
+                array_append(block.statements, stmt);
+            } else {
                 tmp: string = current_token.tok;
                 printf("Unexpected Token: '%s'\n".ptr, tmp.ptr);
                 panic("", #FILE, #LINE);
@@ -968,6 +1024,20 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: u32) -> Block_Node {
             ast_match(ast, TK_SEMICOLON, #FILE, #LINE);
             stmt: Statement = Statement{ return_node };
             array_append(block.statements, stmt);
+        } else if current_token.tt == TK_OPEN_PAREN {
+            assert(!root, "Expressions are not allowed in the top level scope", #FILE, #LINE);
+            expr: Expression = ast_create_expr(ast, block.scope);
+            expr_stmt: Expression_Statement = Expression_Statement{ expr };
+            stmt: Statement = Statement{ expr_stmt };
+            array_append(block.statements, stmt);
+        } else if current_token.tt == TK_IF {
+            if_node: If_Node = ast_create_if(ast, block.scope);
+            expr_stmt_with_block: Expression_Statement_With_Block = Expression_Statement_With_Block{ if_node };
+            expr_stmt: Expression_Statement = Expression_Statement{ expr_stmt_with_block };
+            stmt: Statement = Statement{ expr_stmt };
+            array_append(block.statements, stmt);
+        } else if current_token.tt == TK_FOR {
+            todo("implement for loops", #FILE, #LINE);
         } else {
             tmp: string = current_token.tok;
             printf("Unexpected Token: '%s'\n".ptr, tmp.ptr);
@@ -1071,9 +1141,6 @@ print_expression: proc(expr_: *Expression, indentations: i32) {
 print_decl: proc(decl: *Decl_Node, indentations: i32) {
 	tmp: *Decl_Node = decl;
 	match decl_ := tmp {
-		// Proc_Node => {
-			
-		// },
 		Variable_Decl_Node => {
 			decl_type: Type = decl_.var_type;
 			match var_decl_type := decl_type {
@@ -1146,6 +1213,34 @@ print_decl: proc(decl: *Decl_Node, indentations: i32) {
 	}
 }
 
+print_if_statement: proc(if_node: *If_Node, indentations: i32) {
+    if if_node.condition != 0 {
+        print_indentations(indentations);
+        printf("If Statement:\n".ptr);
+        print_indentations(indentations + 2);
+        printf("Condition:\n".ptr);
+        print_expression(if_node.condition, indentations + 2);
+    } else {
+        print_indentations(indentations);
+        printf("Else:\n".ptr);
+    }
+    print_block(&if_node.block, indentations + 2);
+    if if_node.next != 0 {
+        print_if_statement(if_node.next, indentations);
+    } 
+}
+
+print_expression_with_block: proc(expr_block_: *Expression_Statement_With_Block, indentations: i32) {
+    print_indentations(indentations);
+    printf("Expression Statement (with block): \n".ptr);
+    expr_block: *Expression_Statement_With_Block = expr_block_;
+    match e_block := expr_block {
+        If_Node => {
+            print_if_statement(e_block, indentations);
+        }
+    }
+}
+
 print_block: proc(block: *Block_Node, indentations: i32) {
 	print_indentations(indentations);
 	printf("Block {\n".ptr);
@@ -1155,7 +1250,18 @@ print_block: proc(block: *Block_Node, indentations: i32) {
 		 stmt: Statement = block.statements[i];
 		 match type_ := stmt {
 		 	Expression_Statement => {
-		 		todo("print_ast for Expression_Statement", #FILE, #LINE);
+                // TODO/NOTE: doing this declaration because type_ is not added in the scope
+                t: *Expression_Statement = type_;
+                print_indentations(indentations + 2);
+                printf("Expression Statement:\n".ptr);
+                match e := t {
+                    Expression => {
+                        print_expression(e, indentations + 4);
+                    },
+                    Expression_Statement_With_Block => {
+                        print_expression_with_block(e, indentations + 4);
+                    }
+                }
 		 	},
 		 	Decl_Node => {
 				print_decl(type_, indentations + 4);

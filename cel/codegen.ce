@@ -178,7 +178,7 @@ write_start: proc(g: *Generator) {
         sb_push_str(g.output, "}};\n");
     }
 
-    g.main_declaration = "void _cel_main()"; // TODO: change this to be dynamic later
+    g.main_declaration = "void _cel_main()\n"; // TODO: change this to be dynamic later
 
     // write the c main
     sb_push_str(g.output, "int main(int argc, char** argv) {\n");
@@ -360,10 +360,11 @@ walk_expression: proc(g: *Generator, expr_: *Expression) {
                 sb_push_str(g.output, " & ");
             } else if e.op == OP_ASSIGN {
                 sb_push_str(g.output, " = ");
+            } else if e.op == OP_ACCESS {
+                //TODO: this looks right actually not sure why I put this as unreachable
+                unreachable("Access operation should be handled elsewhere", #FILE, #LINE);
             } else if e.op == OP_ARRAY_INDEX {
                 unreachable("Array indexing should be handled elsewhere", #FILE, #LINE);
-            } else if e.op == OP_ACCESS {
-                unreachable("Access operation should be handled elsewhere", #FILE, #LINE);
             } else if e.op == OP_NOT {
                 unreachable("Unary operator '!' should not appear here", #FILE, #LINE);
             } else if e.op == OP_AND {
@@ -497,6 +498,42 @@ walk_decl: proc(g: *Generator, decl_: *Decl_Node) {
     }
 }
 
+walk_if_node: proc(g: *Generator, if_node: *If_Node) {
+    if if_node.is_else {
+        output_indentations(g);
+        sb_push_str(g.output, "else\n");
+    }
+    if if_node.condition != 0 {
+        sb_push_str(g.output, "if (");
+        walk_expression(g, if_node.condition);
+        sb_push_str(g.output, ")\n");
+        output_indentations(g);
+        sb_push_str(g.output, "{\n");
+        walk_block(g, &if_node.block);
+        output_indentations(g);
+        sb_push_str(g.output, "}\n");
+    } else {
+        assert(if_node.is_else, "non else part of the If Node cannot have a null condition", #FILE, #LINE);
+        output_indentations(g);
+        sb_push_str(g.output, "{\n");
+        walk_block(g, &if_node.block);
+        output_indentations(g);
+        sb_push_str(g.output, "}\n");
+    }
+    if if_node.next != 0 {
+        walk_if_node(g, if_node.next);
+    }
+}
+
+walk_expression_with_block: proc(g: *Generator, expr_block_: *Expression_Statement_With_Block) {
+    expr_block: *Expression_Statement_With_Block = expr_block_;
+    match e_block := expr_block {
+        If_Node => {
+            walk_if_node(g, e_block);
+        }
+    }
+}
+
 walk_block: proc(g: *Generator, block: *Block_Node) {
     save: u32 = g.current_scope;
     g.indentation_level = g.indentation_level + 1;
@@ -508,7 +545,16 @@ walk_block: proc(g: *Generator, block: *Block_Node) {
         }
         match n := statement {
             Expression_Statement => {
-                todo("Codegen for Expression_Statement (walk_block)", #FILE, #LINE);
+                es: *Expression_Statement = n;
+                match e := es {
+                    Expression => {
+                        walk_expression(g, e);
+                        sb_push_str(g.output, ";\n");
+                    },
+                    Expression_Statement_With_Block => {
+                        walk_expression_with_block(g, e);
+                    }
+                }
             }
             Decl_Node => {
                 walk_decl(g, n);

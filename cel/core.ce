@@ -48,8 +48,10 @@ panic: proc(msg: string, file: string, line: u32) {
 
 assert: proc(condition: bool, msg: string, file: string, line: u32) {
     // TODO: print assertion condition maybe?
-	printf("%s:%d: assertion failed: %s\n".ptr, file.ptr, line, msg.ptr);
-	exit(101);
+    if !condition {
+        printf("%s:%d: assertion failed: %s\n".ptr, file.ptr, line, msg.ptr);
+        exit(101);
+    }
 }
 
 is_valid_utf8: proc(s: string) -> bool {
@@ -139,6 +141,11 @@ is_valid_utf8: proc(s: string) -> bool {
 read_file_to_string: proc(filename: string) -> string {
 	sb: String_Builder;
 	fd: i32 = open(filename.ptr, O_RDONLY, 0);
+    // NOTE: we would do fd == -1 but we don't support negative numbers rn lol
+    if fd < 0 {
+        printf("Could not open the file '%s'\n".ptr, filename.ptr);
+        panic("", #FILE, #LINE);
+    }
 	c: [1]u8;
 	len: i32 = 0;
 	bytes_read: i32 = read(fd, &c, sizeof(c));
