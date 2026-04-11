@@ -887,6 +887,7 @@ unsigned long _array_size(void** da)
 }
 
 pub fn codegen_start(ast: &Ast) {
+    println!("------- CODGEN START -------");
     let mut g = Generator {
         file: std::fs::File::options()
             .write(true)

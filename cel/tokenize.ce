@@ -653,11 +653,12 @@ get_tt_string_repr: proc(tt: u8) -> string {
 	}
 }
 
-// print_token: proc(token: *Token) {
-// 	t: *Token = token;
-// 	tt_str: string = get_tt_string_repr(t.tt);
-// 	printf("Token: %s [%s](%d:%d)(%s)\n".ptr, t.tok.ptr, tt_str.ptr, t.x, t.y, t.filename.ptr);
-// }
+print_token: proc(token: *Token) {
+	t: string = token.tok;
+	tt_str: string = get_tt_string_repr(token.tt);
+    filename: string = token.filename;
+	printf("[DEBUG]::=> Token: %s [%s](%d:%d)(%s)\n".ptr, t.ptr, tt_str.ptr, token.x, token.y, filename.ptr);
+}
 
 print_tokens: proc(tokens: [+]Token) {
 	len: u32 = array_size(tokens);

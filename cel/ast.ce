@@ -1,23 +1,29 @@
 
 
-TYPE_U8:       u8 = 1;
-TYPE_U16:      u8 = 2;
-TYPE_U32:      u8 = 3;
-TYPE_U64:      u8 = 4;
-TYPE_I8:       u8 = 5;
-TYPE_I16:      u8 = 6;
-TYPE_I32:      u8 = 7;
-TYPE_I64:      u8 = 8;
-TYPE_BOOL:     u8 = 9;
-TYPE_VOID_PTR: u8 = 10;
-TYPE_STRING:   u8 = 11;
-TYPE_CUSTOM:   u8 = 12;
+TYPE_U8:                   u8 = 1;
+TYPE_U16:                  u8 = 2;
+TYPE_U32:                  u8 = 3;
+TYPE_U64:                  u8 = 4;
+TYPE_I8:                   u8 = 5;
+TYPE_I16:                  u8 = 6;
+TYPE_I32:                  u8 = 7;
+TYPE_I64:                  u8 = 8;
+TYPE_BOOL:                 u8 = 9;
+TYPE_VOID_PTR:             u8 = 10;
+TYPE_STRING:               u8 = 11;
+TYPE_CUSTOM:               u8 = 12; // TODO probably don't need it, its only for builtin types
+TYPE_CUSTOM_DECLARATION:   u8 = 13; // TODO probably don't need it, its only for builtin types
 
 Attribute: type struct {
 	
 }
 
 Type_Custom: type struct {
+	name: *Token,
+	attributes: [+]Attribute
+}
+
+Type_Custom_Decl: type struct {
 	name: *Token,
 	fields: [+]Field,
 	attributes: [+]Attribute
@@ -70,6 +76,7 @@ Type: type choice {
 	Type_Array,
 	Type_Dynamic_Array,
 	Type_Choice,
+	Type_Custom_Decl,
 	Type_Custom
 }
 
@@ -154,6 +161,11 @@ Call_Node: type struct {
     args: [+]Expression
 }
 
+Struct_Init_Node: type struct {
+    name: *Token,
+    exprs: [+]Expression,
+}
+
 // NOTE: DUE TO THE WAY WE ARE CURRENTLY DOING THIS THE ORDER FOR THIS MUST STAY THE SAME
 Expression: type choice {
     Binary_Node,
@@ -161,7 +173,8 @@ Expression: type choice {
     Variable_Node,
     Call_Node,
     String_Literal,
-    Unary_Node
+    Unary_Node,
+    Struct_Init_Node
     // Index(IndexNode),
     // Variable(VariableNode),
     // Call(CallNode),
@@ -312,6 +325,11 @@ get_type_string: proc(type__: Type) -> string {
                return "i32";
            } else if kind == TYPE_I64 {
                return "i64";
+           } else if kind == TYPE_STRING {
+               return "string";
+           } else {
+               printf("\n%d\n".ptr, kind);
+               todo("implement get_type_string for Type_Builtin", #FILE, #LINE);
            }
        }
        Type_Pointer => { 
@@ -331,6 +349,9 @@ get_type_string: proc(type__: Type) -> string {
        }
        Type_Custom => { 
            todo("implement get_type_string for Type_Custom", #FILE, #LINE);
+       }
+       Type_Custom_Decl => {
+           todo("implement get_type_string for Type_Custom_Decl", #FILE, #LINE);
        }
    }
 }
@@ -385,9 +406,9 @@ get_type: proc(token: *Token) -> Type {
 		ret: Type = Type{ inner };
 		return ret;
 	} else {
-		token_str: string = token.tok;
-		printf("%s\n".ptr, token_str.ptr);
-		todo("handle custom types", #FILE, #LINE);
+        inner: Type_Custom = Type_Custom{ token, array_new(Attribute) };
+        ret: Type = Type{ inner };
+        return ret;
 	}
 }
 
@@ -421,8 +442,13 @@ extract_type: proc(ast: *Ast) -> Type {
 			Type_Choice => {
 				todo("handling for Type_Choice", #FILE, #LINE);
 			},
+            Type_Custom_Decl => {
+				unreachable("handled else where since 'type' can never be a TK_WORD", #FILE, #LINE);
+            },
 			Type_Custom => {
-				todo("handling for Type_Custom", #FILE, #LINE);
+                advance(ast);
+                return t;
+                // do nothing?
 			}
 		}
 	} else if current_token.tt == TK_PROC {
@@ -452,8 +478,9 @@ extract_type: proc(ast: *Ast) -> Type {
 		advance(ast);
 
         current_token = get_current_token(ast);
-		return_type: *Type = calloc(1, sizeof(Type)); // will be set to 0 (i.e. null already)
+		return_type: *Type = 0;
         if current_token.tt == TK_ARROW {
+            return_type = calloc(1, sizeof(Type));
             // return type
             advance(ast);
             type_: Type = extract_type(ast);
@@ -501,7 +528,7 @@ extract_type: proc(ast: *Ast) -> Type {
                 field: Field = Field{ name, field_type };
                 array_append(fields, field);
             }
-            struct_type: Type_Custom = Type_Custom{ 0, fields, array_new(Attribute) };
+            struct_type: Type_Custom_Decl = Type_Custom_Decl{ 0, fields, array_new(Attribute) };
             ret: Type = Type{ struct_type }; // set the name later after extract_type
             return ret;
         } else if current_token.tt == TK_CHOICE {
@@ -544,6 +571,9 @@ print_type: proc(var_type: Type) {
 		Type_Custom => {
 			todo("printing for Type_Custom", #FILE, #LINE);
 		}
+        Type_Custom_Decl => {
+			todo("printing for Type_Custom_Decl", #FILE, #LINE);
+        }
 	}
 }
 
@@ -632,6 +662,24 @@ parse_primary: proc(ast: *Ast, scope: u32) -> Expression {
             advance(ast);
             call: Call_Node = Call_Node{ name, args };
             ret: Expression = Expression{ call };
+            return ret;
+        } else if peek.tt == TK_OPEN_CURLY {
+            // struct initialization list 
+            name: *Token = current_token;
+            advance(ast); // name
+            advance(ast); // opencurly
+            current_token = get_current_token(ast);
+            custom: Struct_Init_Node = Struct_Init_Node{ name, array_new(Expression) };
+            for current_token.tt != TK_CLOSE_CURLY {
+                value: Expression = ast_create_expr(ast, scope);
+                current_token = get_current_token(ast);
+                array_append(custom.exprs, value);
+                if current_token.tt == TK_COMMA {
+                    advance(ast);
+                }
+            }
+            advance(ast);
+            ret: Expression = Expression{ custom };
             return ret;
         } else {
             // variables
@@ -835,6 +883,9 @@ get_expr_tag: proc(expr_: *Expression) -> i32 {
         },
         Unary_Node => {
             return 5;
+        },
+        Struct_Init_Node => {
+            return 6;
         }
     }
 }
@@ -956,19 +1007,10 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: u32) -> Block_Node {
 				// Declaration
 				stmt_type: Type = extract_type(ast);
                 skip: bool = false;
+                rhs_check: bool = true;
 				match type_ := stmt_type {
 					Type_Builtin => {
-                        // parse RHS if it exists
-                        ct: *Token = get_current_token(ast); // ct = current_token
-                        if ct.tt == TK_ASSIGN {
-                            advance(ast);
-                            r: Expression = ast_create_expr(ast, block.scope);
-                            rhs = calloc(1, sizeof(Expression));
-                            memcpy(rhs, &r, sizeof(Expression));
-                            ast_match(ast, TK_SEMICOLON, #FILE, #LINE);
-                        } else {
-                            ast_match(ast, TK_SEMICOLON, #FILE, #LINE); // needs to be the end of the statement otherwise
-                        }
+                        // do nothing
 					}
 					Type_Pointer => {
 						todo("Type_Pointer not implemented yet", #FILE, #LINE);
@@ -981,6 +1023,7 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: u32) -> Block_Node {
                             type_.return_type 
                         };
                         array_append(ast.procs, proc_header);
+                        rhs_check = false;
 					}
 					Type_Array => {
 						todo("Type_Array not implemented yet", #FILE, #LINE);
@@ -991,14 +1034,30 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: u32) -> Block_Node {
 					Type_Choice => {
 						todo("Type_Choice not implemented yet", #FILE, #LINE);
 					}
-					Type_Custom => {
+					Type_Custom_Decl => {
                         type_.name = name;
                         array_append(ast.types, stmt_type);
                         skip = true;
+                        rhs_check = false;
 					}
+                    Type_Custom => {
+                        type_.name = name;
+                        print_token(type_.name);
+                        ast_match(ast, TK_SEMICOLON, #FILE, #LINE);
+                    }
 				}
+                // check if rhs needs to be parsed
+                ct: *Token = get_current_token(ast); // ct = current_token
+                if ct.tt == TK_ASSIGN && rhs_check {
+                    ast_match(ast, TK_ASSIGN, #FILE, #LINE);
+                    advance(ast);
+                    r: Expression = ast_create_expr(ast, block.scope);
+                    rhs = calloc(1, sizeof(Expression));
+                    memcpy(rhs, &r, sizeof(Expression));
+                    ast_match(ast, TK_SEMICOLON, #FILE, #LINE);
+                }
                 if !skip {
-                    // we have this because we don't want to add Type_Custom into the list of statements, they are added to the Ast state and will be generated seperately during the codegen phase 
+                    // we have this because we don't want to add Type_Custom_Decl into the list of statements, they are added to the Ast state and will be generated seperately during the codegen phase 
                     var_decl: Variable_Decl_Node = Variable_Decl_Node{ name, rhs, stmt_type, false };
                     decl: Decl_Node = Decl_Node{ var_decl };
                     stmt: Statement = Statement{ decl };
@@ -1134,6 +1193,22 @@ print_expression: proc(expr_: *Expression, indentations: i32) {
             print_indentations(indentations + 2);
             printf("expr:\n".ptr);
             print_expression(e.expr, indentations + 4);
+        },
+        Struct_Init_Node => {
+                //StructDeclaration(Some(Token { x: 23, y: 16, tok: "Vector2", tt: Word, filename: "hello.ce" })):
+                //    Number: 1
+                //    Number: 2
+            print_indentations(indentations);
+            if e.name == 0 {
+                printf("Struct Declaration:\n".ptr);
+            } else {
+                name_tok: *Token = e.name;
+                name_str: string = name_tok.tok;
+                printf("Struct Initialization '%s':\n".ptr, name_str.ptr);
+            }
+            for i: i32 = 0; i < array_size(e.exprs); i = i + 1 {
+                print_expression(&e.exprs[i], indentations + 2);
+            }
         }
     }
 }
@@ -1198,7 +1273,13 @@ print_decl: proc(decl: *Decl_Node, indentations: i32) {
                     print_indentations(indentations + 2);
                     name_tok: *Token = var_decl_type.name;
                     name_str: string = name_tok.tok;
-                    printf("Type Definition: %s\n".ptr, name_str.ptr);
+                    printf("Custom Type: %s\n".ptr, name_str.ptr);
+				},
+                Type_Custom_Decl => {
+                    print_indentations(indentations + 2);
+                    name_tok: *Token = var_decl_type.name;
+                    name_str: string = name_tok.tok;
+                    printf("Type Declaration: %s\n".ptr, name_str.ptr);
                     for i: i32 = 0; i < array_size(var_decl_type.fields); i = i + 1 {
                         field: Field = var_decl_type.fields[i];
                         field_token: *Token = field.name;
@@ -1207,7 +1288,8 @@ print_decl: proc(decl: *Decl_Node, indentations: i32) {
                         t: string = get_type_string(field.type_name);
                         printf("%s: %s\n".ptr, field_str.ptr, t.ptr);
                     }
-				}
+                    unreachable("Shouldn't have any struct declarations here", #FILE, #LINE);
+                }
 			}
 		}
 	}

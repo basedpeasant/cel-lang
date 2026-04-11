@@ -35,7 +35,7 @@ generate_types: proc(g: *Generator) {
             Type_Choice => {
                 todo("Not yet implemented choice yet", #FILE, #LINE);
             },
-            Type_Custom => {
+            Type_Custom_Decl => {
                 // TODO: attributes
                 if array_size(t.attributes) > 0 {
                     todo("Need to think more about how attributes work for structs", #FILE, #LINE);
@@ -47,6 +47,9 @@ generate_types: proc(g: *Generator) {
                 sb_push(g.output, ' ');
                 sb_push_str(g.output, struct_name_str);
                 sb_push_str(g.output, ";\n");
+            },
+            Type_Custom => {
+                unreachable("unexpected type in code generation, only custom types and choice types should be here", #FILE, #LINE);
             }
         }
     }
@@ -72,7 +75,7 @@ generate_types: proc(g: *Generator) {
             Type_Choice => {
                 todo("Not yet implemented choice yet", #FILE, #LINE);
             },
-            Type_Custom => {
+            Type_Custom_Decl => {
                 // TODO: attributes
                 if array_size(t.attributes) > 0 {
                     todo("Need to think more about how attributes work for structs", #FILE, #LINE);
@@ -95,6 +98,9 @@ generate_types: proc(g: *Generator) {
                 }
                 g.indentation_level = g.indentation_level - 1;
                 sb_push_str(g.output, "};\n");
+            },
+            Type_Custom => {
+                unreachable("unexpected type in code generation, only custom types and choice types should be here", #FILE, #LINE);
             }
         }
     }
@@ -260,6 +266,9 @@ get_c_type: proc(type__: Type) -> string {
         Type_Choice => {
             todo("get_c_type (Type_Choice)", #FILE, #LINE);
         }
+        Type_Custom_Decl => {
+            todo("get_c_type (Type_Custom_Decl)", #FILE, #LINE);
+        }
         Type_Custom => {
             todo("get_c_type (Type_Custom)", #FILE, #LINE);
         }
@@ -422,6 +431,16 @@ walk_expression: proc(g: *Generator, expr_: *Expression) {
                 panic("not implemented unary operation yet or invalid unary operation", #FILE, #LINE);
             }
             walk_expression(g, e.expr);
+        },
+        Struct_Init_Node => {
+            sb_push(g.output, '{');
+            for i: i32 = 0; i < array_size(e.exprs); i = i + 1 {
+                walk_expression(g, &e.exprs[i]);
+                if i != array_size(e.exprs) - 1 {
+                    sb_push(g.output, ',');
+                }
+            }
+            sb_push(g.output, '}');
         }
     }
 }
@@ -456,6 +475,11 @@ walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
         }
         Type_Choice => {
             todo("implement walk for Type_Choice", #FILE, #LINE);
+        },
+        Type_Custom => {
+            type_tok: *Token = t.name;
+            type_str: string = type_tok.tok;
+            sb_push_str(g.output, type_str);
         }
         Type_Custom => {
             unreachable("types should not be in the list of statements in any blocks", #FILE, #LINE);
@@ -488,6 +512,9 @@ walk_decl: proc(g: *Generator, decl_: *Decl_Node) {
                     sb_push_str(g.output, ";\n");
                 }
                 Type_Choice => {
+                    sb_push_str(g.output, ";\n");
+                }
+                Type_Custom_Decl => {
                     sb_push_str(g.output, ";\n");
                 }
                 Type_Custom => {
