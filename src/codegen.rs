@@ -1,5 +1,6 @@
 
 use crate::ast::*;
+use crate::tokenize;
 use std::{collections::HashMap, fmt::Formatter, fs, io::Write};
 
 struct Generator {
@@ -132,6 +133,22 @@ fn lookup_custom_type(types: &Vec<Type>, custom_type_name: &String) -> Option<Cu
         };
     }
     panic!("Could not find type {}", custom_type_name);
+}
+
+fn lookup_choice_type_name(types: &Vec<Type>, t: &Type) -> Option<tokenize::Token> {
+    for r#type in types {
+        match (&r#type, &t) {
+            (Type::Choice(_attributes, custom_type_cmp), Type::Choice( t_attributes, t_custom_type)) => {
+                let name = &custom_type_cmp.name.as_ref().unwrap().tok;
+                let t_name = &t_custom_type.name.as_ref().unwrap().tok;
+                if name == t_name {
+                    return Some(custom_type_cmp.name.clone().unwrap());
+                }
+            },
+            _ => {}
+        };
+    }
+    None
 }
 
 fn lookup_choice_type(types: &Vec<Type>, custom_type_name: &String) -> ChoiceType {
@@ -526,9 +543,96 @@ impl Codegen for IfNode {
     }
 }
 
+fn lookup_choice_field_index(
+    choice_type: &ChoiceType,
+    match_field: &(Option<tokenize::Token>, Type)
+) -> i32 {
+    for (i, choice_field) in choice_type.fields.iter().enumerate() {
+        let i = i as i32;
+        match( &choice_field.1, &match_field.1 ) {
+            (Type::U8(_), Type::U8(_)) =>  return i,
+            (Type::U16(_), Type::U16(_)) => return i,
+            (Type::U32(_), Type::U32(_)) => return i,
+            (Type::U64(_), Type::U64(_)) => return i,
+            (Type::I8(_), Type::I8(_)) =>  return i,
+            (Type::I16(_), Type::I16(_)) => return i,
+            (Type::I32(_), Type::I32(_)) => return i,
+            (Type::I64(_), Type::I64(_)) => return i,
+            (Type::VoidPtr(_), Type::VoidPtr(_)) => return i,
+            (Type::String(_), Type::String(_)) => return i,
+            (Type::Bool(_), Type::Bool(_)) => return i,
+            (Type::Array(_), Type::Array(_)) => return i,
+            (Type::Slice(_), Type::Slice(_)) => return i,
+            (Type::Custom(_attributes, field_custom_type), Type::Custom(_attributes2, var_decl_custom_type)) => {
+                if field_custom_type.name.as_ref().unwrap().tok == var_decl_custom_type.name.as_ref().unwrap().tok {
+                    return i;
+                } else {
+                    continue;
+                }
+            },
+            (Type::Pointer(_), Type::Pointer(_)) => todo!("implement pointer in this"),
+            (Type::Choice(..), Type::Choice(..)) => todo!("implement choice in this"),
+            (Type::DynamicArray(_), Type::DynamicArray(_)) => todo!("implement dynamic arrays in this"),
+            _ => todo!("type not implemented yet"),
+        };
+    }
+    return -1;
+}
+
+fn get_choice_type_from_subject(types: &Vec<Type>, subject_type: &Type) -> Option<ChoiceType> {
+    // NOTE/TODO: this is so ugly
+    match subject_type {
+        Type::Choice(_, choice) => Some(choice.clone()),
+        Type::Custom(_, custom) => {
+            // Look up the actual choice type from ast.types
+            for t in types {
+                match t {
+                    Type::Choice(_, choice) => {
+                        if let Some(name) = &choice.name {
+                            if let Some(custom_name) = &custom.name {
+                                if name.tok == custom_name.tok {
+                                    return Some(choice.clone());
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            None
+        }
+        Type::Pointer(inner) => {
+            match inner.as_ref() {
+                Type::Choice(_, choice) => Some(choice.clone()),
+                Type::Custom(_, custom) => {
+                    // Look up the actual choice type from ast.types
+                    for t in types {
+                        match t {
+                            Type::Choice(_, choice) => {
+                                if let Some(name) = &choice.name {
+                                    if let Some(custom_name) = &custom.name {
+                                        if name.tok == custom_name.tok {
+                                            return Some(choice.clone());
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    None
+                }
+                _ => None
+            }
+        }
+        _ => None
+    }
+}
+
 impl Codegen for MatchNode {
     fn walk(&self, g: &mut Generator) {
         //TODO: support other kinds of match
+        // TODO/NOTE: this is so ugly
         assert!(self.match_type == MatchKind::Choice);
         if self.needs_deref {
             g.file.write(format!("switch({}->_tag)\n", self.subject.symbol.tok).as_bytes()).unwrap();
@@ -538,10 +642,19 @@ impl Codegen for MatchNode {
         print_indentations(&mut g.file, g.indentation_level);
         g.file.write(b"{\n").unwrap();
         assert!(self.blocks.len() == self.fields.len(), "Number of items must match the number of fields in the choice node for this match: {:?}", self.token);
-        for (i, field) in self.fields.iter().enumerate() {
+        
+        // Get the choice type to look up correct index 
+        let choice_type = get_choice_type_from_subject(&g.types, &self.subject.type_)
+            .expect("Subject must be a choice type");
+        
+        for (block_idx, field) in self.fields.iter().enumerate() {
+            // Find the correct tag 
+            let variant_tag = lookup_choice_field_index(&choice_type, field);
+            assert!(variant_tag != -1, "Could not find field in choice type definition");
+            
             print_indentations(&mut g.file, g.indentation_level);
-            g.file.write(format!("case {}: {{\n", i).as_bytes()).unwrap();
-            self.blocks[i].walk(g);
+            g.file.write(format!("case {}: {{\n", variant_tag).as_bytes()).unwrap();
+            self.blocks[block_idx].walk(g);
             print_indentations(&mut g.file, g.indentation_level);
             g.file.write(b"break;\n").unwrap();
             print_indentations(&mut g.file, g.indentation_level);

@@ -1296,15 +1296,15 @@ fn create_for(ast: &mut Ast, parent_scope: usize) -> ForNode {
     }
 }
 
-fn lookup_var(ast: &Ast, scope_id: usize, name: &str) -> Option<VariableDeclNode> {
+fn lookup_var(scopes: &Vec<Scope>, scope_id: usize, name: &str) -> Option<VariableDeclNode> {
     let mut scope_id = scope_id;
 
     loop {
-        if let Some(decl) = ast.scopes[scope_id].map.get(name) {
+        if let Some(decl) = scopes[scope_id].map.get(name) {
             return Some(decl.clone());
         }
 
-        match ast.scopes[scope_id].parent_scope {
+        match scopes[scope_id].parent_scope {
             Some(parent) => scope_id = parent,
             None => return None,
         }
@@ -1487,7 +1487,7 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                 ast.advance();
                 ast.match_token(TokenType::OpenCurly);
                 ast.advance();
-                let subject = match lookup_var(ast, block.scope, &subject_token.tok) {
+                let subject = match lookup_var(&ast.scopes, block.scope, &subject_token.tok) {
                     Some(var) => var,
                     None => panic!("Could not find \"{}\"", subject_token.tok)
                 };
@@ -1628,6 +1628,17 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                             }
                         )
                 )));
+            },
+            TokenType::OpenParen => {
+                // Expression
+                if root {
+                    // for debug purposes
+                    println!("{:?}", current_token);
+                }
+                assert!(!root, "Expressions are not allowed in the top level scope");
+                // expression statement
+                let expr = create_expr(ast, ast.scopes[block.scope].id);
+                block.statements.push(Statement::ExpressionStatement(ExpressionStatement::Expression(expr)));
             }
             _ => todo!("Unexpected Token \"{:?}\":{}", current_token, ast.index),
         }

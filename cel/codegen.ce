@@ -447,6 +447,7 @@ walk_expression: proc(g: *Generator, expr_: *Expression) {
 
 walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
     var_type: Type = variable_decl.var_type;
+    skip: bool = false;
 
     match t := var_type {
         Type_Builtin => {
@@ -454,18 +455,13 @@ walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
             sb_push_str(g.output, c_type_str);
             // don't forget the space
             sb_push(g.output, ' ');
-            name: *Token = variable_decl.symbol;
-            sb_push_str(g.output, name.tok);
-            if variable_decl.rhs != 0 {
-                sb_push_str(g.output, " = ");
-                walk_expression(g, variable_decl.rhs);
-            }
         }
         Type_Pointer => {
             todo("implement walk for Type_Pointer", #FILE, #LINE);
         }
         Type_Proc => {
             walk_proc(g, t);
+            skip = true;
         }
         Type_Array => {
             todo("implement walk for Type_Array", #FILE, #LINE);
@@ -476,13 +472,22 @@ walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
         Type_Choice => {
             todo("implement walk for Type_Choice", #FILE, #LINE);
         },
+        Type_Custom_Decl => {
+            unreachable("types should not be in the list of statements in any blocks", #FILE, #LINE);
+        }
         Type_Custom => {
             type_tok: *Token = t.name;
             type_str: string = type_tok.tok;
             sb_push_str(g.output, type_str);
+            sb_push(g.output, ' ');
         }
-        Type_Custom => {
-            unreachable("types should not be in the list of statements in any blocks", #FILE, #LINE);
+    }
+    if !skip {
+        name: *Token = variable_decl.symbol;
+        sb_push_str(g.output, name.tok);
+        if variable_decl.rhs != 0 {
+            sb_push_str(g.output, " = ");
+            walk_expression(g, variable_decl.rhs);
         }
     }
 }

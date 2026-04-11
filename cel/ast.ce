@@ -347,11 +347,11 @@ get_type_string: proc(type__: Type) -> string {
        Type_Choice => { 
            todo("implement get_type_string for Type_Choice", #FILE, #LINE);
        }
-       Type_Custom => { 
-           todo("implement get_type_string for Type_Custom", #FILE, #LINE);
-       }
        Type_Custom_Decl => {
            todo("implement get_type_string for Type_Custom_Decl", #FILE, #LINE);
+       }
+       Type_Custom => { 
+           todo("implement get_type_string for Type_Custom", #FILE, #LINE);
        }
    }
 }
@@ -568,12 +568,12 @@ print_type: proc(var_type: Type) {
 		Type_Choice => {
 			todo("printing for Type_Choice", #FILE, #LINE);
 		},
-		Type_Custom => {
-			todo("printing for Type_Custom", #FILE, #LINE);
-		}
         Type_Custom_Decl => {
 			todo("printing for Type_Custom_Decl", #FILE, #LINE);
         }
+		Type_Custom => {
+			todo("printing for Type_Custom", #FILE, #LINE);
+		}
 	}
 }
 
@@ -1007,6 +1007,8 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: u32) -> Block_Node {
 				// Declaration
 				stmt_type: Type = extract_type(ast);
                 skip: bool = false;
+                // rhs_check is to make sure to check for rhs 
+                // when necessary
                 rhs_check: bool = true;
 				match type_ := stmt_type {
 					Type_Builtin => {
@@ -1041,9 +1043,7 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: u32) -> Block_Node {
                         rhs_check = false;
 					}
                     Type_Custom => {
-                        type_.name = name;
-                        print_token(type_.name);
-                        ast_match(ast, TK_SEMICOLON, #FILE, #LINE);
+                        // do nothing
                     }
 				}
                 // check if rhs needs to be parsed
@@ -1269,12 +1269,6 @@ print_decl: proc(decl: *Decl_Node, indentations: i32) {
 				Type_Choice => {
 					todo("Type_Choice not implemented (print_decl)", #FILE, #LINE);
 				}
-				Type_Custom => {
-                    print_indentations(indentations + 2);
-                    name_tok: *Token = var_decl_type.name;
-                    name_str: string = name_tok.tok;
-                    printf("Custom Type: %s\n".ptr, name_str.ptr);
-				},
                 Type_Custom_Decl => {
                     print_indentations(indentations + 2);
                     name_tok: *Token = var_decl_type.name;
@@ -1289,7 +1283,13 @@ print_decl: proc(decl: *Decl_Node, indentations: i32) {
                         printf("%s: %s\n".ptr, field_str.ptr, t.ptr);
                     }
                     unreachable("Shouldn't have any struct declarations here", #FILE, #LINE);
-                }
+                },
+				Type_Custom => {
+                    print_indentations(indentations + 2);
+                    name_tok: *Token = var_decl_type.name;
+                    name_str: string = name_tok.tok;
+                    printf("Custom Type: %s\n".ptr, name_str.ptr);
+				},
 			}
 		}
 	}
