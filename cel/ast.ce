@@ -34,10 +34,6 @@ Type_Builtin: type struct {
 	attributes: [+]Attribute
 }
 
-Type_Pointer: type struct {
-	
-}
-
 Return_Node: type struct {
     expr: *Expression,
 }
@@ -69,6 +65,10 @@ Type_Choice: type struct {
 	
 }
 
+Type_Pointer: type struct {
+	inner: *Type,
+}
+
 Type: type choice {
 	Type_Builtin,
 	Type_Pointer,
@@ -77,7 +77,7 @@ Type: type choice {
 	Type_Dynamic_Array,
 	Type_Choice,
 	Type_Custom_Decl,
-	Type_Custom
+	Type_Custom,
 }
 
 Field: type struct {
@@ -534,9 +534,15 @@ extract_type: proc(ast: *Ast) -> Type {
         } else if current_token.tt == TK_CHOICE {
             todo("implement choice types", #FILE, #LINE);
         }
-    //   } else if current_token.tt == TK_STAR {
-    //       // TODO: why is this here lol
-    // todo("not implemented yet", #FILE, #LINE);
+      } else if current_token.tt == TK_STAR {
+          // TODO: why is this here lol
+          advance(ast);
+          inner_type: *Type = calloc(1, sizeof(Type));
+          tmp: Type = extract_type(ast);
+          memcpy(inner_type, &tmp, sizeof(Type));
+          ptr: Type_Pointer = Type_Pointer{ inner_type };
+          ret: Type = Type{ ptr };
+          return ret;
 	} else {
 		current_token_str: string = current_token.tok;
 		printf("%s\n".ptr, current_token_str.ptr);

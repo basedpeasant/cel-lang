@@ -252,7 +252,17 @@ get_c_type: proc(type__: Type) -> string {
             }
         }
         Type_Pointer => {
-            todo("get_c_type (Type_Pointer)", #FILE, #LINE);
+            inner: *Type = t.inner;
+            c_type: string = get_c_type(inner[0]);
+            sb: String_Builder;
+            sb_push_str(&sb, c_type);
+            sb_push_str(&sb, "*");
+            // memory allocated here without freeing
+            // not like theres other parts of the code that doesn't
+            // do this lol. problem for later;
+            ret: string = sb_to_string(&sb);
+            sb_free(&sb);
+            return ret;
         }
         Type_Proc => {
             todo("get_c_type (Type_Proc)", #FILE, #LINE);
@@ -370,9 +380,11 @@ walk_expression: proc(g: *Generator, expr_: *Expression) {
             } else if e.op == OP_ASSIGN {
                 sb_push_str(g.output, " = ");
             } else if e.op == OP_ACCESS {
+                sb_push_str(g.output, ".");
                 //TODO: this looks right actually not sure why I put this as unreachable
-                unreachable("Access operation should be handled elsewhere", #FILE, #LINE);
+                // unreachable("Access operation should be handled elsewhere", #FILE, #LINE);
             } else if e.op == OP_ARRAY_INDEX {
+                //TODO: this looks right actually not sure why I put this as unreachable
                 unreachable("Array indexing should be handled elsewhere", #FILE, #LINE);
             } else if e.op == OP_NOT {
                 unreachable("Unary operator '!' should not appear here", #FILE, #LINE);
@@ -426,6 +438,8 @@ walk_expression: proc(g: *Generator, expr_: *Expression) {
                 sb_push_str(g.output, "!");
             } else if e.op == OP_BITWISE_NOT {
                 sb_push_str(g.output, "~");
+            } else if e.op == OP_REFERENCE {
+                sb_push_str(g.output, "&");
             } else {
                 printf("%d\n".ptr, e.op);
                 panic("not implemented unary operation yet or invalid unary operation", #FILE, #LINE);
