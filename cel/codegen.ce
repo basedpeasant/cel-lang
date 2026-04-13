@@ -175,7 +175,13 @@ write_start: proc(g: *Generator) {
         sb_push_str(g.output, "]){");
         for j: i32 = 0; j < str.length; j = j + 1 {
             sb_push_str(g.output, "'");
-            sb_push(g.output, str.ptr[j]);
+            if str.ptr[j] == '\\' {
+                sb_push(g.output, str.ptr[j]);
+                j = j + 1;
+                sb_push(g.output, str.ptr[j]);
+            } else {
+                sb_push(g.output, str.ptr[j]);
+            }
             sb_push_str(g.output, "'");
             if j < str.length - 1 {
                 sb_push_str(g.output, ", ");

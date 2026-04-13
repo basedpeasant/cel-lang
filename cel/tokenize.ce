@@ -500,19 +500,14 @@ tokenize: proc(src: *string, filename: string) -> [+]Token {
 				i = i + 1; x = x + 1;
 				c = src.ptr[i];
 				for c != '\'' {
+                    // TODO: actually this seems a bit weird
 					if c == '\\' {
 						sb_push(&current_string, c);
 						i = i + 1;
 						c = src.ptr[i];
-						if c == '\'' {
-							sb_push(&current_string, c);
-							i = i + 1;
-							c = src.ptr[i];
-						} else {
-							sb_push(&current_string, c);
-							i = i + 1;
-							c = src.ptr[i];
-						}
+                        sb_push(&current_string, c);
+                        i = i + 1;
+                        c = src.ptr[i];
 					} else {
 						sb_push(&current_string, c);
 						i = i + 1; x = x + 1;
@@ -657,7 +652,7 @@ print_token: proc(token: *Token) {
 	t: string = token.tok;
 	tt_str: string = get_tt_string_repr(token.tt);
     filename: string = token.filename;
-	printf("[DEBUG]::=> Token: %s [%s](%d:%d)(%s)\n".ptr, t.ptr, tt_str.ptr, token.x, token.y, filename.ptr);
+	printf("[DEBUG]::=> Token: %s [%s](%d:%d)(%s)\n".ptr, t.ptr, tt_str.ptr, token.y, token.x, filename.ptr);
 }
 
 print_tokens: proc(tokens: [+]Token) {
@@ -665,7 +660,7 @@ print_tokens: proc(tokens: [+]Token) {
 	for i: i32 = 0; i < len; i = i + 1 {
 		token: Token = tokens[i];
 		tt_str: string = get_tt_string_repr(token.tt);
-		printf("Token: %s [%s](%d:%d)(%s)\n".ptr, token.tok.ptr, tt_str.ptr, token.x, token.y, token.filename.ptr);
+		printf("Token: %s [%s](%d:%d)(%s)\n".ptr, token.tok.ptr, tt_str.ptr, token.y, token.x, token.filename.ptr);
 	}
 }
 

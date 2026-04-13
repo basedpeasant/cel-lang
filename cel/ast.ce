@@ -640,7 +640,7 @@ strtoi: proc(str: string) -> i64 {
     }
 }
 
-parse_primary: proc(ast: *Ast, scope: u32) -> Expression {
+parse_primary: proc(ast: *Ast, scope: u32, in_if: bool) -> Expression {
     current_token: *Token = get_current_token(ast); 
     if current_token.tt == TK_NUMBER {
         num: Number_Node = Number_Node{ strtoi(current_token.tok) };
@@ -655,7 +655,7 @@ parse_primary: proc(ast: *Ast, scope: u32) -> Expression {
             advance(ast);
             args: [+]Expression;
             for true {
-                arg: Expression = ast_create_expr(ast, scope); 
+                arg: Expression = ast_create_expr(ast, scope, false); 
                 array_append(args, arg);
                 current_token: *Token = get_current_token(ast);
                 if current_token.tt == TK_CLOSE_PAREN {
@@ -669,7 +669,9 @@ parse_primary: proc(ast: *Ast, scope: u32) -> Expression {
             call: Call_Node = Call_Node{ name, args };
             ret: Expression = Expression{ call };
             return ret;
-        } else if peek.tt == TK_OPEN_CURLY {
+        } else if peek.tt == TK_OPEN_CURLY && !in_if {
+            // make sure that the program doesn't mistake an if statement and a opencurly
+            // as struct initialization list hence why in_if is needed
             // struct initialization list 
             name: *Token = current_token;
             advance(ast); // name
@@ -677,7 +679,7 @@ parse_primary: proc(ast: *Ast, scope: u32) -> Expression {
             current_token = get_current_token(ast);
             custom: Struct_Init_Node = Struct_Init_Node{ name, array_new(Expression) };
             for current_token.tt != TK_CLOSE_CURLY {
-                value: Expression = ast_create_expr(ast, scope);
+                value: Expression = ast_create_expr(ast, scope, false);
                 current_token = get_current_token(ast);
                 array_append(custom.exprs, value);
                 if current_token.tt == TK_COMMA {
@@ -689,6 +691,7 @@ parse_primary: proc(ast: *Ast, scope: u32) -> Expression {
             return ret;
         } else {
             // variables
+            print_token(get_current_token(ast));
             variable: Variable_Node = Variable_Node{ get_current_token(ast) };
             ret: Expression = Expression{ variable };
             advance(ast);
@@ -704,7 +707,7 @@ parse_primary: proc(ast: *Ast, scope: u32) -> Expression {
         return ret;
     } else if current_token.tt == TK_OPEN_PAREN {
         advance(ast) ;
-        expr: Expression = ast_create_expr(ast, scope);
+        expr: Expression = ast_create_expr(ast, scope, false);
         ast_match(ast, TK_CLOSE_PAREN, #FILE, #LINE);
         advance(ast);
         //TODO: handle postfix operators for bracketed expressions as well when implemented
@@ -716,15 +719,16 @@ parse_primary: proc(ast: *Ast, scope: u32) -> Expression {
         expr_alloc: *Expression = calloc(1, sizeof(Expression));
         op: i32 = get_op(current_token);
         advance(ast);
-        expr: Expression = parse_primary(ast, scope);
+        expr: Expression = parse_primary(ast, scope, in_if);
         memcpy(expr_alloc, &expr, sizeof(Expression));
         expr_alloc._tag = get_expr_tag(&expr);
         tmp_str: string = current_token.tok;
-        printf("TEST: %d:%s\n".ptr, op, tmp_str.ptr);
         unary: Unary_Node = Unary_Node{ op, expr_alloc }; 
         ret: Expression = Expression{ unary };
         return ret;
     } else {
+        print_token(current_token);
+        breakpoint(0);
         panic("(Parse Primary) Unexpected Token", #FILE, #LINE);
     }
 }
@@ -907,8 +911,8 @@ ast_create_binary: proc(op: i32, lhs: Expression, rhs: Expression) -> Binary_Nod
     return ret;
 }
 
-ast_create_expr_with_prec: proc(ast: *Ast, min_prec: i32, scope: u32) -> Expression {
-    lhs: Expression = parse_primary(ast, scope);
+ast_create_expr_with_prec: proc(ast: *Ast, min_prec: i32, scope: u32, in_if: bool) -> Expression {
+    lhs: Expression = parse_primary(ast, scope, in_if);
     // TODO: parse_porstfix
     for true {
         op_token: *Token = get_current_token(ast);
@@ -928,7 +932,7 @@ ast_create_expr_with_prec: proc(ast: *Ast, min_prec: i32, scope: u32) -> Express
         //     return lhs
         // }
 
-        rhs: Expression = ast_create_expr_with_prec(ast, prec, scope);
+        rhs: Expression = ast_create_expr_with_prec(ast, prec, scope, in_if);
    
         bin: Binary_Node = ast_create_binary(get_op(op_token), lhs, rhs);
         tmp: Expression = Expression {bin};
@@ -939,8 +943,8 @@ ast_create_expr_with_prec: proc(ast: *Ast, min_prec: i32, scope: u32) -> Express
     return lhs;
 }
 
-ast_create_expr: proc(ast: *Ast, scope: u32) -> Expression {
-    return ast_create_expr_with_prec(ast, 0, scope);
+ast_create_expr: proc(ast: *Ast, scope: u32, in_if: bool) -> Expression {
+    return ast_create_expr_with_prec(ast, 0, scope, in_if);
 }
 
 ast_create_if: proc(ast: *Ast, scope: u32) -> If_Node {
@@ -965,8 +969,10 @@ ast_create_if: proc(ast: *Ast, scope: u32) -> If_Node {
     }
     
     condition: *Expression = 0;
+    // TODO/NOTE: probably could check if there is any condition here anyway
+    // this would just be a good addition for error messages
     if !skip_condition {
-        expr: Expression = ast_create_expr(ast, scope);
+        expr: Expression = ast_create_expr(ast, scope, true);
         condition = calloc(1, sizeof(Expression));
         memcpy(condition, &expr, sizeof(Expression));
     }
@@ -1057,7 +1063,7 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: u32) -> Block_Node {
                 if ct.tt == TK_ASSIGN && rhs_check {
                     ast_match(ast, TK_ASSIGN, #FILE, #LINE);
                     advance(ast);
-                    r: Expression = ast_create_expr(ast, block.scope);
+                    r: Expression = ast_create_expr(ast, block.scope, false);
                     rhs = calloc(1, sizeof(Expression));
                     memcpy(rhs, &r, sizeof(Expression));
                     ast_match(ast, TK_SEMICOLON, #FILE, #LINE);
@@ -1071,7 +1077,7 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: u32) -> Block_Node {
                 }
 			} else if peek.tt == TK_OPEN_PAREN {
                 assert(!root, "Expressions are not allowed in the top level scope", #FILE, #LINE);
-                expr: Expression = ast_create_expr(ast, block.scope);
+                expr: Expression = ast_create_expr(ast, block.scope, false);
                 expr_stmt: Expression_Statement = Expression_Statement{ expr };
                 stmt: Statement = Statement{ expr_stmt };
                 array_append(block.statements, stmt);
@@ -1082,7 +1088,7 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: u32) -> Block_Node {
             }
 		} else if current_token.tt == TK_RETURN {
             advance(ast);
-            expr_tmp: Expression = ast_create_expr(ast, block.scope);
+            expr_tmp: Expression = ast_create_expr(ast, block.scope, false);
             expr: *Expression = calloc(1, sizeof(Expression));
             return_node: Return_Node = Return_Node{ expr };
             memcpy(return_node.expr, &expr_tmp, sizeof(Expression));
@@ -1091,7 +1097,7 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: u32) -> Block_Node {
             array_append(block.statements, stmt);
         } else if current_token.tt == TK_OPEN_PAREN {
             assert(!root, "Expressions are not allowed in the top level scope", #FILE, #LINE);
-            expr: Expression = ast_create_expr(ast, block.scope);
+            expr: Expression = ast_create_expr(ast, block.scope, false);
             expr_stmt: Expression_Statement = Expression_Statement{ expr };
             stmt: Statement = Statement{ expr_stmt };
             array_append(block.statements, stmt);
