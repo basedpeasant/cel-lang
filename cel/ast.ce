@@ -202,7 +202,7 @@ For_Node: type struct {
 
 Expression_Statement_With_Block: type choice {
 	If_Node,
-	// For_Node,
+	For_Node,
 	// MatchNode,
 }
 
@@ -947,6 +947,43 @@ ast_create_expr: proc(ast: *Ast, scope: u32, in_if: bool) -> Expression {
     return ast_create_expr_with_prec(ast, 0, scope, in_if);
 }
 
+ast_create_for: proc(ast: *Ast, scope: u32) -> For_Node {
+    ast_match(ast, TK_FOR, #FILE, #LINE);
+    advance(ast);
+
+    // TODO: account for other types of for loops
+    peek: *Token = get_peek(ast);
+    is_classic_for: bool = false;
+    expr: *Expression = 0;
+    init: *Statement = 0; // TODO: figure out how to get this to work lol
+
+    current_token: *Token = get_current_token(ast);
+    if current_token.tt == TK_OPEN_CURLY {
+        // forever loop
+        advance(ast);
+        block: Block_Node = create_block(ast, false, scope);
+        for_node: For_Node = For_Node{ block, is_classic_for, init, expr };
+        return for_node;
+    }
+
+    if peek.tt == TK_COLON {
+        // classical for loop
+        todo("classical for loops", #FILE, #LINE);
+        is_classic_for = true;
+    } else {
+        // while for loops
+        expr_tmp: Expression = ast_create_expr(ast, scope, true);
+        expr = calloc(1, sizeof(Expression));
+        memcpy(expr, &expr_tmp, sizeof(Expression));
+    }
+    ast_match(ast, TK_OPEN_CURLY, #FILE, #LINE);
+    advance(ast);
+
+    block: Block_Node = create_block(ast, false, scope);
+    for_node: For_Node = For_Node{ block, is_classic_for, init, expr };
+    return for_node;
+}
+
 ast_create_if: proc(ast: *Ast, scope: u32) -> If_Node {
     skip_condition: bool = false;
     is_else: bool = false;
@@ -1108,13 +1145,16 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: u32) -> Block_Node {
             stmt: Statement = Statement{ expr_stmt };
             array_append(block.statements, stmt);
         } else if current_token.tt == TK_FOR {
-            todo("implement for loops", #FILE, #LINE);
+            for_node: For_Node = ast_create_for(ast, block.scope);
+            expr_stmt_with_block: Expression_Statement_With_Block = Expression_Statement_With_Block{ for_node };
+            expr_stmt: Expression_Statement = Expression_Statement{ expr_stmt_with_block };
+            stmt: Statement = Statement{ expr_stmt };
+            array_append(block.statements, stmt);
         } else {
             tmp: string = current_token.tok;
             printf("Unexpected Token: '%s'\n".ptr, tmp.ptr);
             panic("", #FILE, #LINE);
         }
-
 
 		advance(ast);
 		if ast.index >= array_size(ast.tokens) {
@@ -1324,6 +1364,21 @@ print_if_statement: proc(if_node: *If_Node, indentations: i32) {
     } 
 }
 
+print_for: proc(for_node: *For_Node, indentations: i32) {
+     printf("For Statement (TODO):\n".ptr);
+     print_indentations(indentations);
+     if for_node.is_classic_for {
+         todo("printing for classical for loops", #FILE, #LINE);
+     }
+     printf("Condition:\n".ptr);
+     if for_node.condition {
+        print_expression(for_node.condition, indentations + 2);
+     } else {
+        printf("(none)\n".ptr);
+     }
+     print_block(&for_node.block, indentations);
+}
+
 print_expression_with_block: proc(expr_block_: *Expression_Statement_With_Block, indentations: i32) {
     print_indentations(indentations);
     printf("Expression Statement (with block): \n".ptr);
@@ -1331,6 +1386,9 @@ print_expression_with_block: proc(expr_block_: *Expression_Statement_With_Block,
     match e_block := expr_block {
         If_Node => {
             print_if_statement(e_block, indentations);
+        },
+        For_Node => {
+            print_for(e_block, indentations);
         }
     }
 }

@@ -123,6 +123,7 @@ write_start: proc(g: *Generator) {
     sb_push_str(g.output, "    int length;\n");
     sb_push_str(g.output, "    const char* ptr;\n");
     sb_push_str(g.output, "} string;\n");
+    // sb_push_str(g.output, "#define breakpoint(dummy) __asm__(\"int3\")");
 
     cel_main_call: string;
     generate_types(g);
@@ -315,10 +316,8 @@ walk_proc: proc(g: *Generator, proc_: *Type_Proc) {
         }
         sb_push_str(g.output, ")\n");
     }
-    sb_push_str(g.output, "{\n");
     walk_block(g, &proc_.block);
 
-    sb_push_str(g.output, "}\n\n");
 }
 
 // converts int to an allocated string 
@@ -559,21 +558,28 @@ walk_if_node: proc(g: *Generator, if_node: *If_Node) {
         sb_push_str(g.output, "if (");
         walk_expression(g, if_node.condition);
         sb_push_str(g.output, ")\n");
-        output_indentations(g);
-        sb_push_str(g.output, "{\n");
         walk_block(g, &if_node.block);
-        output_indentations(g);
-        sb_push_str(g.output, "}\n");
     } else {
         assert(if_node.is_else, "non else part of the If Node cannot have a null condition", #FILE, #LINE);
-        output_indentations(g);
-        sb_push_str(g.output, "{\n");
         walk_block(g, &if_node.block);
-        output_indentations(g);
-        sb_push_str(g.output, "}\n");
     }
     if if_node.next != 0 {
         walk_if_node(g, if_node.next);
+    }
+}
+
+walk_for_node: proc(g: *Generator, for_node: *For_Node) {
+    if for_node.is_classic_for {
+        todo("implement codegen for classic for", #FILE, #LINE);
+    } else {
+        sb_push_str(g.output, "while(");
+        if for_node.condition == 0 {
+            sb_push_str(g.output, "true");
+        } else {
+            walk_expression(g, for_node.condition);
+        }
+        sb_push_str(g.output, ")\n");
+        walk_block(g, &for_node.block);
     }
 }
 
@@ -582,11 +588,18 @@ walk_expression_with_block: proc(g: *Generator, expr_block_: *Expression_Stateme
     match e_block := expr_block {
         If_Node => {
             walk_if_node(g, e_block);
+        },
+        For_Node => {
+            walk_for_node(g, e_block);
         }
     }
 }
 
 walk_block: proc(g: *Generator, block: *Block_Node) {
+    if block.scope != 0 {
+        output_indentations(g);
+        sb_push_str(g.output, "{\n");
+    }
     save: u32 = g.current_scope;
     g.indentation_level = g.indentation_level + 1;
 
@@ -626,6 +639,10 @@ walk_block: proc(g: *Generator, block: *Block_Node) {
     }
 
     g.indentation_level = g.indentation_level - 1;
+    if block.scope != 0 {
+        output_indentations(g);
+        sb_push_str(g.output, "}\n");
+    }
 }
 
 codegen_start: proc(ast: *Ast) {
