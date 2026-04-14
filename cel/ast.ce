@@ -54,7 +54,8 @@ Type_Proc: type struct {
 }
 
 Type_Array: type struct {
-	
+    size: *Expression,
+    array_type: *Type
 }
 
 Type_Dynamic_Array: type struct {
@@ -166,6 +167,11 @@ Struct_Init_Node: type struct {
     exprs: [+]Expression,
 }
 
+Array_Literal: type struct {
+    elements: [+]Expression,
+    size: u32 // TODO: prob not needed
+}
+
 // NOTE: DUE TO THE WAY WE ARE CURRENTLY DOING THIS THE ORDER FOR THIS MUST STAY THE SAME
 Expression: type choice {
     Binary_Node,
@@ -174,7 +180,8 @@ Expression: type choice {
     Call_Node,
     String_Literal,
     Unary_Node,
-    Struct_Init_Node
+    Struct_Init_Node,
+    Array_Literal
     // Index(IndexNode),
     // Variable(VariableNode),
     // Call(CallNode),
@@ -543,7 +550,29 @@ extract_type: proc(ast: *Ast) -> Type {
           ptr: Type_Pointer = Type_Pointer{ inner_type };
           ret: Type = Type{ ptr };
           return ret;
-	} else {
+	} else if current_token.tt == TK_OPEN_SQUARE {
+        // Array type
+        advance(ast);
+        current_token = get_current_token(ast);
+        if current_token.tt == TK_PLUS {
+            todo("implement dynamic arrays", #FILE, #LINE);
+        } else if current_token.tt == TK_CLOSE_SQUARE {
+            todo("implement slices", #FILE, #LINE);
+        } else if current_token.tt == TK_WORD || current_token.tt == TK_NUMBER || is_operator(current_token) {
+            // vla or fixed array 
+            size_tmp: Expression = ast_create_expr(ast, ast.current_scope, false);
+            size: *Expression = calloc(1, sizeof(Expression));
+            memcpy(size, &size_tmp, sizeof(Expression));
+            ast_match(ast, TK_CLOSE_SQUARE, #FILE, #LINE);
+            advance(ast);
+            array_type_tmp: Type = extract_type(ast);
+            array_type: *Type = calloc(1, sizeof(Type));
+            memcpy(array_type, &array_type_tmp, sizeof(Type));
+            array: Type_Array = Type_Array{ size, array_type };
+            ret: Type = Type{ array };
+            return ret;
+        }
+    } else {
 		current_token_str: string = current_token.tok;
 		printf("%s\n".ptr, current_token_str.ptr);
 		todo("Unexpected Token", #FILE, #LINE);
@@ -730,6 +759,27 @@ parse_primary: proc(ast: *Ast, scope: u32, in_if: bool) -> Expression {
         unary: Unary_Node = Unary_Node{ op, expr_alloc }; 
         ret: Expression = Expression{ unary };
         return ret;
+    } else if current_token.tt == TK_OPEN_SQUARE {
+        // array access
+        ast_match(ast, TK_OPEN_SQUARE, #FILE, #LINE);
+        advance(ast);
+        array_lit: Array_Literal;
+        array_lit.elements = array_new(Expression);
+        current_token: *Token = get_current_token(ast);
+        for true {
+            if current_token.tt == TK_CLOSE_SQUARE {
+                break;
+            } else if current_token.tt == TK_COMMA {
+                advance(ast);
+            }
+            element: Expression = ast_create_expr(ast, scope, false);
+            array_append(array_lit.elements, element);
+            current_token = get_current_token(ast);
+        }
+        ast_match(ast, TK_CLOSE_SQUARE, #FILE, #LINE);
+        advance(ast);
+        ret: Expression = Expression{ array_lit };
+        return ret;
     } else {
         print_token(current_token);
         breakpoint(0);
@@ -906,6 +956,9 @@ get_expr_tag: proc(expr_: *Expression) -> i32 {
         },
         Struct_Init_Node => {
             return 6;
+        },
+        Array_Literal => {
+            return 7;
         }
     }
 }
@@ -1127,7 +1180,7 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: u32) -> Block_Node {
                         rhs_check = false;
 					}
 					Type_Array => {
-						todo("Type_Array not implemented yet", #FILE, #LINE);
+                        // do nothing
 					}
 					Type_Dynamic_Array => {
 						todo("Type_Dynamic_Array not implemented yet", #FILE, #LINE);
@@ -1225,6 +1278,7 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: u32) -> Block_Node {
 	if root {
 		print_ast(block);
 	}
+    ast.current_scope = parent_scope;
 	return block;
 }
 
@@ -1303,11 +1357,22 @@ print_expression: proc(expr_: *Expression, indentations: i32) {
             for i: i32 = 0; i < array_size(e.exprs); i = i + 1 {
                 print_expression(&e.exprs[i], indentations + 2);
             }
+        },
+        Array_Literal => {
+            print_indentations(indentations);
+            printf("ArrayLiteral: [\n".ptr);
+            for i: i32 = 0; i < array_size(e.elements); i = i + 1 {
+                print_expression(&e.elements[i], indentations + 2);
+            }
+            print_indentations(indentations);
+            printf("]\n".ptr);
         }
     }
 }
 
 print_decl: proc(decl: *Decl_Node, indentations: i32) {
+    // TODO: this proc has a lot of duplicate code which needs to be refactored
+    //       refactor once dev DX is better lol
 	tmp: *Decl_Node = decl;
 	match decl_ := tmp {
 		Variable_Decl_Node => {
@@ -1320,6 +1385,7 @@ print_decl: proc(decl: *Decl_Node, indentations: i32) {
 					token_symbol: *Token = decl_.symbol;
 					name_str: string = token_symbol.tok;
 					printf("name: '%s'\n".ptr, name_str.ptr);
+                    // TODO: print the type
                     if decl_.rhs != 0 {
                         print_indentations(indentations + 4);
                         printf("Initializer:\n".ptr);
@@ -1355,7 +1421,22 @@ print_decl: proc(decl: *Decl_Node, indentations: i32) {
 					print_block(&var_decl_type.block, indentations + 6);
 				}
 				Type_Array => {
-					todo("Type_Array not implemented (print_decl)", #FILE, #LINE);
+					print_indentations(indentations + 2);
+					printf("Variable Declaration:\n".ptr);
+					print_indentations(indentations + 4);
+					token_symbol: *Token = decl_.symbol;
+					name_str: string = token_symbol.tok;
+					printf("name: '%s'\n".ptr, name_str.ptr);
+                    // TODO: print the type
+                    if decl_.rhs != 0 {
+                        print_indentations(indentations + 4);
+                        printf("Initializer:\n".ptr);
+                        print_expression(decl_.rhs, indentations + 6);
+                        // todo("Type_Builtin printing rhs (print_decl)", #FILE, #LINE);
+                    } else {
+                        print_indentations(indentations + 4);
+                        printf("Initializer: (none)\n".ptr);
+                    }
 				}
 				Type_Dynamic_Array => {
 					todo("Type_Dynamic_Array not implemented (print_decl)", #FILE, #LINE);
@@ -1381,8 +1462,21 @@ print_decl: proc(decl: *Decl_Node, indentations: i32) {
 				Type_Custom => {
                     print_indentations(indentations + 2);
                     name_tok: *Token = var_decl_type.name;
-                    name_str: string = name_tok.tok;
-                    printf("Custom Type: %s\n".ptr, name_str.ptr);
+					name_str: string = name_tok.tok;
+					printf("name: '%s'\n".ptr, name_str.ptr);
+                    type_str: string = name_tok.tok;
+                    print_indentations(indentations + 2);
+                    printf("Custom Type: %s\n".ptr, type_str.ptr);
+                    // TODO: print the type
+                    if decl_.rhs != 0 {
+                        print_indentations(indentations + 4);
+                        printf("Initializer:\n".ptr);
+                        print_expression(decl_.rhs, indentations + 6);
+                        // todo("Type_Builtin printing rhs (print_decl)", #FILE, #LINE);
+                    } else {
+                        print_indentations(indentations + 4);
+                        printf("Initializer: (none)\n".ptr);
+                    }
 				},
 			}
 		}
@@ -1407,6 +1501,7 @@ print_if_statement: proc(if_node: *If_Node, indentations: i32) {
 }
 
 print_for: proc(for_node: *For_Node, indentations: i32) {
+     print_indentations(indentations);
      printf("For Statement (TODO):\n".ptr);
      print_indentations(indentations);
      if for_node.is_classic_for {
