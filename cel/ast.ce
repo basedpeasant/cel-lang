@@ -864,6 +864,8 @@ get_prec: proc(ast: *Ast, token: *Token) -> i32 {
         return 8;
     } else if token.tt == TK_HAT {
         return 7;
+    } else if token.tt == TK_ASSIGN {
+        return 2;
     } else if token.tt == TK_SEMICOLON    || 
             token.tt == TK_COMMA        ||
             token.tt == TK_CLOSE_PAREN  ||
@@ -1048,6 +1050,30 @@ is_operator: proc(token: *Token) -> bool {
         return true;
     } else if token.tt == TK_ASSIGN {
         return true;
+    } else if token.tt == TK_PLUS {
+        return true;
+    } else if token.tt == TK_DOT {
+        return true;
+    } else if token.tt == TK_LOGICAL_OR {
+        return true;
+    } else if token.tt == TK_LOGICAL_AND {
+        return true;
+    } else if token.tt == TK_OPEN_SQUARE {
+        return true;
+    } else if token.tt == TK_AMPERSAND {
+        return true;
+    } else if token.tt == TK_OR {
+        return true;
+    } else if token.tt == TK_NOT {
+        return true;
+    } else if token.tt == TK_LEFT_SHIFT {
+        return true;
+    } else if token.tt == TK_RIGHT_SHIFT {
+        return true;
+    } else if token.tt == TK_SLASH {
+        return true;
+    } else if token.tt == TK_STAR {
+        return true;
     } else {
         return false;
     }
@@ -1142,6 +1168,15 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: u32) -> Block_Node {
                 expr_stmt: Expression_Statement = Expression_Statement{ expr };
                 stmt: Statement = Statement{ expr_stmt };
                 array_append(block.statements, stmt);
+            } else if is_operator(peek) || peek.tt == TK_OPEN_PAREN {
+                if root {
+                    print_token(current_token);
+                }
+                assert(!root, "Expressions are not allowed in the top level scope", #FILE, #LINE);
+                expr: Expression = ast_create_expr(ast, block.scope, false);
+                expr_stmt: Expression_Statement = Expression_Statement{ expr };
+                stmt: Statement = Statement{ expr_stmt };
+                array_append(block.statements, stmt);
             } else {
                 tmp: string = current_token.tok;
                 printf("Unexpected Token: '%s'\n".ptr, tmp.ptr);
@@ -1202,24 +1237,6 @@ print_indentations: proc(n: i32) {
 	printf("%s".ptr, sb.chars);
 	sb_free(&sb);
 }
-
-//Block {
-//  [0]
-//    Proc Declaration:
-//      name: "main"
-//      body:
-//        Block {
-//          [0]
-//            Variable Declaration:
-//              name: "a"
-//              type: i32
-//              initializer:
-//                BinaryOp: +
-//                  lhs:
-//                    Number: 34
-//                  rhs:
-//                    Number: 35
- 
 
 print_expression: proc(expr_: *Expression, indentations: i32) {
     expr: *Expression = expr_; // NOTE/TODO: have to do this because of bug with compiler
