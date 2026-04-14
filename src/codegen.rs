@@ -737,9 +737,13 @@ impl Codegen for BlockNode {
                              expr.walk(g);
                         },
                         ExpressionStatement::Return(ret) => {
-                             g.file.write(b"return ").unwrap();
-                             ret.expr.walk(g);
-                             g.file.write(b";\n").unwrap();
+                             if ret.expr.is_none() {
+                                 g.file.write(b"return;").unwrap();
+                             } else {
+                                 g.file.write(b"return ").unwrap();
+                                 ret.expr.as_ref().unwrap().walk(g);
+                                 g.file.write(b";\n").unwrap();
+                             }
                         },
                         ExpressionStatement::Defer(expr) => {
                             expr.walk(g);
@@ -768,6 +772,7 @@ fn print_indentations(g: &mut fs::File, indentation_level: u8) {
 }
 
 fn write_start(g: &mut Generator) {
+    // including breakpoint() __asm__("int3") just for debug purposes
     g.file.write(r#"
 typedef enum {
 	false = 0,
@@ -785,7 +790,7 @@ void _start();
 #define TODO(msg) \
         printf("%s:%d: TODO: %s\n", __FILE__, __LINE__, msg.ptr); \
         exit(101);
-
+#define breakpoint(dummy) __asm__("int3")
 "#.as_bytes()).unwrap();
 
     let mut cel_main = "";
@@ -968,6 +973,8 @@ typedef struct {
 
 #define array_size(DA) _array_size((void**)&DA)
 
+#define array_resize(DA, SIZE) _array_resize((void**)&DA, SIZE)
+
 // #define array_free(DA) _array_free((void**)&DA)
 
 #define array_free(DA) \
@@ -996,6 +1003,12 @@ unsigned long _array_size(void** da)
     return array_meta->size;
 }
 
+void _array_resize(void** da, unsigned int length) 
+{
+    Array_Metadata* array_meta = get_meta(*da);
+    array_meta->size = length;
+}
+
 "#.as_bytes()).unwrap();
 }
 
@@ -1005,6 +1018,7 @@ pub fn codegen_start(ast: &Ast) {
         file: std::fs::File::options()
             .write(true)
             .create(true)
+            .truncate(true)
             .open("out.c")
             .unwrap(),
         current_scope: ast.root_block.as_ref().unwrap().scope,

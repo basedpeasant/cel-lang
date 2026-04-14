@@ -219,7 +219,7 @@ pub struct Scope {
 
 #[derive(Clone)]
 pub struct ReturnNode {
-    pub expr: Expression
+    pub expr: Option<Expression>
 }
 
 #[derive(Debug, Clone)]
@@ -406,7 +406,9 @@ fn print_expression_statement(expr_stmt: &ExpressionStatement, level: usize) {
         }
         ExpressionStatement::Return(ret) => {
             println!("{}Return:", indent(level));
-            print_expression(&ret.expr, level + 1);
+            if ret.expr.is_some() {
+                print_expression(&ret.expr.as_ref().unwrap(), level + 1);
+            }
         }
         ExpressionStatement::Defer(expr) => {
             println!("{}Defer:", indent(level));
@@ -1412,7 +1414,11 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
             },
             TokenType::Return => {
                 ast.advance();
-                let expr = create_expr(ast, ast.scopes[block.scope].id);
+                let current_token = ast.get_current_token().unwrap();
+                let mut expr = None;
+                if current_token.tt != TokenType::SemiColon{
+                    expr = Some(create_expr(ast, ast.scopes[block.scope].id));
+                }
                 block.statements.push(Statement::ExpressionStatement(ExpressionStatement::Return(ReturnNode { expr })));
             },
             TokenType::Defer => {
