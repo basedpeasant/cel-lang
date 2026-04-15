@@ -1,6 +1,7 @@
 include "core.ce";
 include "tokenize.ce";
 include "ast.ce";
+include "static_analysis.ce";
 include "codegen.ce";
 
 print_usage: proc(i: i32) {

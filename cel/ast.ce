@@ -43,8 +43,6 @@ Block_Node: type struct {
 	scope: u32
 }
 
-// TODO: is this even needed? rn its not used at all
-//       Consider removing
 Type_Proc: type struct {
 	attributes: [+]Attribute,
 	args: [+]Variable_Decl_Node,
@@ -145,10 +143,13 @@ OP_LEFT_SHIFT: i32 = 29;
 OP_RIGHT_SHIFT: i32 = 30;
 OP_BITWISE_XOR: i32 = 31;
 OP_BITWISE_NOT: i32 = 32;
+OP_ADD_ASSIGN: i32 = 33;
+OP_SUB_ASSIGN: i32 = 34;
 
 Unary_Node: type struct {
     op: i32,
-    expr: *Expression
+    base: *Expression,
+    expr: *Expression,
 }
 
 Binary_Node: type struct {
@@ -181,7 +182,7 @@ Expression: type choice {
     String_Literal,
     Unary_Node,
     Struct_Init_Node,
-    Array_Literal
+    Array_Literal,
     // Index(IndexNode),
     // Variable(VariableNode),
     // Call(CallNode),
@@ -204,7 +205,8 @@ For_Node: type struct {
 	block: Block_Node,
 	is_classic_for: bool,
 	init: *Statement,
-	condition: *Expression
+	condition: *Expression,
+    post: *Expression
 }
 
 Expression_Statement_With_Block: type choice {
@@ -722,6 +724,25 @@ parse_primary: proc(ast: *Ast, scope: u32, in_if: bool) -> Expression {
             advance(ast);
             ret: Expression = Expression{ custom };
             return ret;
+        } else if peek.tt == TK_OPEN_SQUARE {
+            variable: Variable_Node = Variable_Node{ get_current_token(ast) };
+            base_tmp: Expression = Expression { variable };
+            base_alloc: *Expression = calloc(1, sizeof(Expression));
+            memcpy(base_alloc, &base_tmp, sizeof(Expression));
+            expr_alloc: *Expression = calloc(1, sizeof(Expression));
+            op: i32 = get_op(peek); // note: I guess doesn't need to be a function call but anyway
+            advance(ast);
+            ast_match(ast, TK_OPEN_SQUARE, #FILE, #LINE);
+            advance(ast);
+            expr: Expression = ast_create_expr(ast, scope, in_if);
+            ast_match(ast, TK_CLOSE_SQUARE, #FILE, #LINE);
+            advance(ast);
+            memcpy(expr_alloc, &expr, sizeof(Expression));
+            expr_alloc._tag = get_expr_tag(&expr);
+            tmp_str: string = current_token.tok;
+            unary: Unary_Node = Unary_Node{ op, base_alloc, expr_alloc }; 
+            ret: Expression = Expression{ unary };
+            return ret;
         } else {
             // variables
             print_token(get_current_token(ast));
@@ -749,18 +770,18 @@ parse_primary: proc(ast: *Ast, scope: u32, in_if: bool) -> Expression {
               current_token.tt == TK_AMPERSAND || 
               current_token.tt == TK_NOT 
     {
-        expr_alloc: *Expression = calloc(1, sizeof(Expression));
+        base_alloc: *Expression = calloc(1, sizeof(Expression));
         op: i32 = get_op(current_token);
         advance(ast);
         expr: Expression = parse_primary(ast, scope, in_if);
-        memcpy(expr_alloc, &expr, sizeof(Expression));
-        expr_alloc._tag = get_expr_tag(&expr);
+        memcpy(base_alloc, &expr, sizeof(Expression));
+        base_alloc._tag = get_expr_tag(&expr);
         tmp_str: string = current_token.tok;
-        unary: Unary_Node = Unary_Node{ op, expr_alloc }; 
+        unary: Unary_Node = Unary_Node{ op, base_alloc, 0 }; 
         ret: Expression = Expression{ unary };
         return ret;
     } else if current_token.tt == TK_OPEN_SQUARE {
-        // array access
+        // array literal
         ast_match(ast, TK_OPEN_SQUARE, #FILE, #LINE);
         advance(ast);
         array_lit: Array_Literal;
@@ -834,6 +855,10 @@ get_op_string: proc(op: i32) -> string {
         return "^";
     } else if op == OP_BITWISE_NOT {
         return "~";
+    } else if op == OP_ADD_ASSIGN {
+        return "+=";
+    } else if op == OP_SUB_ASSIGN {
+        return "-=";
     } else {
         todo("print for get_op_string", #FILE, #LINE);
     }
@@ -889,6 +914,10 @@ get_op: proc(token: *Token) -> i32 {
         return OP_BITWISE_XOR;
     } else if token.tt == TK_TILDE {
         return OP_BITWISE_NOT;
+    } else if token.tt == TK_ADD_ASSIGN {
+        return OP_ADD_ASSIGN;
+    } else if token.tt == TK_SUB_ASSIGN {
+        return OP_SUB_ASSIGN;
     } else {
         str: string = token.tok;
         printf("%s\n".ptr, str.ptr);
@@ -914,14 +943,17 @@ get_prec: proc(ast: *Ast, token: *Token) -> i32 {
         return 8;
     } else if token.tt == TK_HAT {
         return 7;
-    } else if token.tt == TK_ASSIGN {
+    } else if token.tt == TK_ASSIGN     || 
+              token.tt == TK_ADD_ASSIGN || 
+              token.tt == TK_SUB_ASSIGN 
+    {
         return 2;
     } else if token.tt == TK_SEMICOLON    || 
-            token.tt == TK_COMMA        ||
-            token.tt == TK_CLOSE_PAREN  ||
-            token.tt == TK_CLOSE_SQUARE ||
-            token.tt == TK_OPEN_CURLY   ||
-            token.tt == TK_CLOSE_CURLY  
+              token.tt == TK_COMMA        ||
+              token.tt == TK_CLOSE_PAREN  ||
+              token.tt == TK_CLOSE_SQUARE ||
+              token.tt == TK_OPEN_CURLY   ||
+              token.tt == TK_CLOSE_CURLY  
     {
         return PREC_SENTINEL; 
     } else {
@@ -1019,19 +1051,35 @@ ast_create_for: proc(ast: *Ast, scope: u32) -> For_Node {
     is_classic_for: bool = false;
     expr: *Expression = 0;
     init: *Statement = 0; // TODO: figure out how to get this to work lol
+    post: *Expression = 0;
+    for_scope: u32 = scope;
 
     current_token: *Token = get_current_token(ast);
     if current_token.tt == TK_OPEN_CURLY {
         // forever loop
         advance(ast);
         block: Block_Node = create_block(ast, false, scope);
-        for_node: For_Node = For_Node{ block, is_classic_for, init, expr };
+        for_node: For_Node = For_Node{ block, is_classic_for, init, expr, post };
         return for_node;
     }
 
     if peek.tt == TK_COLON {
-        // classical for loop
-        todo("classical for loops", #FILE, #LINE);
+        // classical for loop 
+        // TODO: this won't allow for empty conditions in the classic for 
+        for_scope = create_new_scope(ast, for_scope);
+        init = create_statement(ast, for_scope);
+        ast_match(ast, TK_SEMICOLON, #FILE, #LINE);
+        advance(ast);
+
+        expr_tmp: Expression = ast_create_expr(ast, scope, true);
+        expr = calloc(1, sizeof(Expression));
+        memcpy(expr, &expr_tmp, sizeof(Expression));
+        ast_match(ast, TK_SEMICOLON, #FILE, #LINE);
+        advance(ast);
+
+        post_tmp: Expression = ast_create_expr(ast, scope, true);
+        post = calloc(1, sizeof(Expression));
+        memcpy(post, &post_tmp, sizeof(Expression));
         is_classic_for = true;
     } else {
         // while for loops
@@ -1042,8 +1090,8 @@ ast_create_for: proc(ast: *Ast, scope: u32) -> For_Node {
     ast_match(ast, TK_OPEN_CURLY, #FILE, #LINE);
     advance(ast);
 
-    block: Block_Node = create_block(ast, false, scope);
-    for_node: For_Node = For_Node{ block, is_classic_for, init, expr };
+    block: Block_Node = create_block(ast, false, for_scope);
+    for_node: For_Node = For_Node{ block, is_classic_for, init, expr, post };
     return for_node;
 }
 
@@ -1103,6 +1151,10 @@ is_operator: proc(token: *Token) -> bool {
         return true;
     } else if token.tt == TK_ASSIGN {
         return true;
+    } else if token.tt == TK_ADD_ASSIGN {
+        return true;
+    } else if token.tt == TK_SUB_ASSIGN {
+        return true;
     } else if token.tt == TK_PLUS {
         return true;
     } else if token.tt == TK_DOT {
@@ -1132,6 +1184,152 @@ is_operator: proc(token: *Token) -> bool {
     }
 }
 
+copy_statement: proc(stmt: Statement) -> *Statement {
+    stmt_alloc: *Statement = calloc(1, sizeof(Statement));
+    memcpy(stmt_alloc, &stmt, sizeof(Statement));
+    return stmt_alloc;
+}
+
+create_statement: proc(ast: *Ast, scope: u32) -> *Statement {
+    current_token: *Token = get_current_token(ast);
+    stmt_ret: *Statement = 0;
+    root: bool = false;
+    if scope == 0 {
+        root = true;
+    }
+    if current_token.tt == TK_WORD {
+        rhs: *Expression = 0;
+        // expression or Decl
+        name: *Token = current_token;
+        peek: *Token = get_peek(ast);
+        if peek.tt == TK_COLON {
+            advance(ast);
+            advance(ast);
+            // Declaration
+            stmt_type: Type = extract_type(ast);
+            skip: bool = false;
+            // rhs_check is to make sure to check for rhs 
+            // when necessary
+            rhs_check: bool = true;
+            match type_ := stmt_type {
+                Type_Builtin => {
+                    // do nothing
+                }
+                Type_Pointer => {
+                    todo("Type_Pointer not implemented yet", #FILE, #LINE);
+                }
+                Type_Proc => {
+                    type_.name = name;
+                    proc_header: Proc_Header_Node = Proc_Header_Node{ 
+                        name, 
+                        type_.args, 
+                        type_.return_type 
+                    };
+                    array_append(ast.procs, proc_header);
+                    rhs_check = false;
+                }
+                Type_Array => {
+                    // do nothing
+                }
+                Type_Dynamic_Array => {
+                    todo("Type_Dynamic_Array not implemented yet", #FILE, #LINE);
+                }
+                Type_Choice => {
+                    todo("Type_Choice not implemented yet", #FILE, #LINE);
+                }
+                Type_Custom_Decl => {
+                    type_.name = name;
+                    array_append(ast.types, stmt_type);
+                    skip = true;
+                    rhs_check = false;
+                }
+                Type_Custom => {
+                    // do nothing
+                }
+            }
+            // check if rhs needs to be parsed
+            ct: *Token = get_current_token(ast); // ct = current_token
+            if ct.tt == TK_ASSIGN && rhs_check {
+                ast_match(ast, TK_ASSIGN, #FILE, #LINE);
+                advance(ast);
+                r: Expression = ast_create_expr(ast, scope, false);
+                rhs = calloc(1, sizeof(Expression));
+                memcpy(rhs, &r, sizeof(Expression));
+                ast_match(ast, TK_SEMICOLON, #FILE, #LINE);
+            }
+            if !skip {
+                // we have this because we don't want to add Type_Custom_Decl into the list of statements, they are added to the Ast state and will be generated seperately during the codegen phase 
+                var_decl: Variable_Decl_Node = Variable_Decl_Node{ name, rhs, stmt_type, false };
+                decl: Decl_Node = Decl_Node{ var_decl };
+                stmt: Statement = Statement{ decl };
+                stmt_ret = copy_statement(stmt);
+            }
+        } else if peek.tt == TK_OPEN_PAREN {
+            assert(!root, "Expressions are not allowed in the top level scope", #FILE, #LINE);
+            expr: Expression = ast_create_expr(ast, scope, false);
+            expr_stmt: Expression_Statement = Expression_Statement{ expr };
+            stmt: Statement = Statement{ expr_stmt };
+            stmt_ret = copy_statement(stmt);
+        } else if is_operator(peek) || peek.tt == TK_OPEN_PAREN {
+            if root {
+                print_token(current_token);
+            }
+            assert(!root, "Expressions are not allowed in the top level scope", #FILE, #LINE);
+            expr: Expression = ast_create_expr(ast, scope, false);
+            expr_stmt: Expression_Statement = Expression_Statement{ expr };
+            stmt: Statement = Statement{ expr_stmt };
+            stmt_ret = copy_statement(stmt);
+        } else {
+            tmp: string = current_token.tok;
+            printf("Unexpected Token: '%s'\n".ptr, tmp.ptr);
+            print_token(current_token);
+            panic("", #FILE, #LINE);
+        }
+    } else if current_token.tt == TK_RETURN {
+        advance(ast);
+        current_token = get_current_token(ast);
+        expr: *Expression = 0;
+        if current_token.tt != TK_SEMICOLON {
+            expr_tmp: Expression = ast_create_expr(ast, scope, false);
+            expr = calloc(1, sizeof(Expression));
+            return_node: Return_Node = Return_Node{ expr };
+            memcpy(return_node.expr, &expr_tmp, sizeof(Expression));
+            ast_match(ast, TK_SEMICOLON, #FILE, #LINE);
+            stmt: Statement = Statement{ return_node };
+            stmt_ret = copy_statement(stmt);
+        } else {
+            return_node: Return_Node = Return_Node{ expr };
+            ast_match(ast, TK_SEMICOLON, #FILE, #LINE);
+            stmt: Statement = Statement{ return_node };
+            stmt_ret = copy_statement(stmt);
+        }
+    } else if current_token.tt == TK_OPEN_PAREN {
+        assert(!root, "Expressions are not allowed in the top level scope", #FILE, #LINE);
+        expr: Expression = ast_create_expr(ast, scope, false);
+        expr_stmt: Expression_Statement = Expression_Statement{ expr };
+        stmt: Statement = Statement{ expr_stmt };
+        stmt_ret = copy_statement(stmt);
+    } else if current_token.tt == TK_IF {
+        if_node: If_Node = ast_create_if(ast, scope);
+        expr_stmt_with_block: Expression_Statement_With_Block = Expression_Statement_With_Block{ if_node };
+        expr_stmt: Expression_Statement = Expression_Statement{ expr_stmt_with_block };
+        stmt: Statement = Statement{ expr_stmt };
+        stmt_ret = copy_statement(stmt);
+    } else if current_token.tt == TK_FOR {
+        for_node: For_Node = ast_create_for(ast, scope);
+        expr_stmt_with_block: Expression_Statement_With_Block = Expression_Statement_With_Block{ for_node };
+        expr_stmt: Expression_Statement = Expression_Statement{ expr_stmt_with_block };
+        stmt: Statement = Statement{ expr_stmt };
+        stmt_ret = copy_statement(stmt);
+    } else {
+        print_token(current_token);
+        tmp: string = current_token.tok;
+        printf("Unexpected Token: '%s'\n".ptr, tmp.ptr);
+        panic("", #FILE, #LINE);
+    }
+    return stmt_ret;
+}
+
 create_block: proc(ast: *Ast, root: bool, parent_scope: u32) -> Block_Node {
 	block: Block_Node;
 	block.statements = array_new(Statement);
@@ -1148,127 +1346,140 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: u32) -> Block_Node {
 				break;
 			}
 		}
-		if current_token.tt == TK_WORD {
-            rhs: *Expression = 0;
-			// expression or Decl
-			name: *Token = current_token;
-			peek: *Token = get_peek(ast);
-			if peek.tt == TK_COLON {
-				advance(ast);
-				advance(ast);
-				// Declaration
-				stmt_type: Type = extract_type(ast);
-                skip: bool = false;
-                // rhs_check is to make sure to check for rhs 
-                // when necessary
-                rhs_check: bool = true;
-				match type_ := stmt_type {
-					Type_Builtin => {
-                        // do nothing
-					}
-					Type_Pointer => {
-						todo("Type_Pointer not implemented yet", #FILE, #LINE);
-					}
-					Type_Proc => {
-						type_.name = name;
-                        proc_header: Proc_Header_Node = Proc_Header_Node{ 
-                            name, 
-                            type_.args, 
-                            type_.return_type 
-                        };
-                        array_append(ast.procs, proc_header);
-                        rhs_check = false;
-					}
-					Type_Array => {
-                        // do nothing
-					}
-					Type_Dynamic_Array => {
-						todo("Type_Dynamic_Array not implemented yet", #FILE, #LINE);
-					}
-					Type_Choice => {
-						todo("Type_Choice not implemented yet", #FILE, #LINE);
-					}
-					Type_Custom_Decl => {
-                        type_.name = name;
-                        array_append(ast.types, stmt_type);
-                        skip = true;
-                        rhs_check = false;
-					}
-                    Type_Custom => {
-                        // do nothing
-                    }
-				}
-                // check if rhs needs to be parsed
-                ct: *Token = get_current_token(ast); // ct = current_token
-                if ct.tt == TK_ASSIGN && rhs_check {
-                    ast_match(ast, TK_ASSIGN, #FILE, #LINE);
-                    advance(ast);
-                    r: Expression = ast_create_expr(ast, block.scope, false);
-                    rhs = calloc(1, sizeof(Expression));
-                    memcpy(rhs, &r, sizeof(Expression));
-                    ast_match(ast, TK_SEMICOLON, #FILE, #LINE);
-                }
-                if !skip {
-                    // we have this because we don't want to add Type_Custom_Decl into the list of statements, they are added to the Ast state and will be generated seperately during the codegen phase 
-                    var_decl: Variable_Decl_Node = Variable_Decl_Node{ name, rhs, stmt_type, false };
-                    decl: Decl_Node = Decl_Node{ var_decl };
-                    stmt: Statement = Statement{ decl };
-                    array_append(block.statements, stmt);
-                }
-			} else if peek.tt == TK_OPEN_PAREN {
-                assert(!root, "Expressions are not allowed in the top level scope", #FILE, #LINE);
-                expr: Expression = ast_create_expr(ast, block.scope, false);
-                expr_stmt: Expression_Statement = Expression_Statement{ expr };
-                stmt: Statement = Statement{ expr_stmt };
-                array_append(block.statements, stmt);
-            } else if is_operator(peek) || peek.tt == TK_OPEN_PAREN {
-                if root {
-                    print_token(current_token);
-                }
-                assert(!root, "Expressions are not allowed in the top level scope", #FILE, #LINE);
-                expr: Expression = ast_create_expr(ast, block.scope, false);
-                expr_stmt: Expression_Statement = Expression_Statement{ expr };
-                stmt: Statement = Statement{ expr_stmt };
-                array_append(block.statements, stmt);
-            } else {
-                tmp: string = current_token.tok;
-                printf("Unexpected Token: '%s'\n".ptr, tmp.ptr);
-                print_token(current_token);
-                panic("", #FILE, #LINE);
-            }
-		} else if current_token.tt == TK_RETURN {
-            advance(ast);
-            expr_tmp: Expression = ast_create_expr(ast, block.scope, false);
-            expr: *Expression = calloc(1, sizeof(Expression));
-            return_node: Return_Node = Return_Node{ expr };
-            memcpy(return_node.expr, &expr_tmp, sizeof(Expression));
-            ast_match(ast, TK_SEMICOLON, #FILE, #LINE);
-            stmt: Statement = Statement{ return_node };
-            array_append(block.statements, stmt);
-        } else if current_token.tt == TK_OPEN_PAREN {
-            assert(!root, "Expressions are not allowed in the top level scope", #FILE, #LINE);
-            expr: Expression = ast_create_expr(ast, block.scope, false);
-            expr_stmt: Expression_Statement = Expression_Statement{ expr };
-            stmt: Statement = Statement{ expr_stmt };
-            array_append(block.statements, stmt);
-        } else if current_token.tt == TK_IF {
-            if_node: If_Node = ast_create_if(ast, block.scope);
-            expr_stmt_with_block: Expression_Statement_With_Block = Expression_Statement_With_Block{ if_node };
-            expr_stmt: Expression_Statement = Expression_Statement{ expr_stmt_with_block };
-            stmt: Statement = Statement{ expr_stmt };
-            array_append(block.statements, stmt);
-        } else if current_token.tt == TK_FOR {
-            for_node: For_Node = ast_create_for(ast, block.scope);
-            expr_stmt_with_block: Expression_Statement_With_Block = Expression_Statement_With_Block{ for_node };
-            expr_stmt: Expression_Statement = Expression_Statement{ expr_stmt_with_block };
-            stmt: Statement = Statement{ expr_stmt };
-            array_append(block.statements, stmt);
-        } else {
-            tmp: string = current_token.tok;
-            printf("Unexpected Token: '%s'\n".ptr, tmp.ptr);
-            panic("", #FILE, #LINE);
+		// if current_token.tt == TK_WORD {
+		//           rhs: *Expression = 0;
+		// 	// expression or Decl
+		// 	name: *Token = current_token;
+		// 	peek: *Token = get_peek(ast);
+		// 	if peek.tt == TK_COLON {
+		// 		advance(ast);
+		// 		advance(ast);
+		// 		// Declaration
+		// 		stmt_type: Type = extract_type(ast);
+		//               skip: bool = false;
+		//               // rhs_check is to make sure to check for rhs 
+		//               // when necessary
+		//               rhs_check: bool = true;
+		// 		match type_ := stmt_type {
+		// 			Type_Builtin => {
+		//                       // do nothing
+		// 			}
+		// 			Type_Pointer => {
+		// 				todo("Type_Pointer not implemented yet", #FILE, #LINE);
+		// 			}
+		// 			Type_Proc => {
+		// 				type_.name = name;
+		//                       proc_header: Proc_Header_Node = Proc_Header_Node{ 
+		//                           name, 
+		//                           type_.args, 
+		//                           type_.return_type 
+		//                       };
+		//                       array_append(ast.procs, proc_header);
+		//                       rhs_check = false;
+		// 			}
+		// 			Type_Array => {
+		//                       // do nothing
+		// 			}
+		// 			Type_Dynamic_Array => {
+		// 				todo("Type_Dynamic_Array not implemented yet", #FILE, #LINE);
+		// 			}
+		// 			Type_Choice => {
+		// 				todo("Type_Choice not implemented yet", #FILE, #LINE);
+		// 			}
+		// 			Type_Custom_Decl => {
+		//                       type_.name = name;
+		//                       array_append(ast.types, stmt_type);
+		//                       skip = true;
+		//                       rhs_check = false;
+		// 			}
+		//                   Type_Custom => {
+		//                       // do nothing
+		//                   }
+		// 		}
+		//               // check if rhs needs to be parsed
+		//               ct: *Token = get_current_token(ast); // ct = current_token
+		//               if ct.tt == TK_ASSIGN && rhs_check {
+		//                   ast_match(ast, TK_ASSIGN, #FILE, #LINE);
+		//                   advance(ast);
+		//                   r: Expression = ast_create_expr(ast, block.scope, false);
+		//                   rhs = calloc(1, sizeof(Expression));
+		//                   memcpy(rhs, &r, sizeof(Expression));
+		//                   ast_match(ast, TK_SEMICOLON, #FILE, #LINE);
+		//               }
+		//               if !skip {
+		//                   // we have this because we don't want to add Type_Custom_Decl into the list of statements, they are added to the Ast state and will be generated seperately during the codegen phase 
+		//                   var_decl: Variable_Decl_Node = Variable_Decl_Node{ name, rhs, stmt_type, false };
+		//                   decl: Decl_Node = Decl_Node{ var_decl };
+		//                   stmt: Statement = Statement{ decl };
+		//                   array_append(block.statements, stmt);
+		//               }
+		// 	} else if peek.tt == TK_OPEN_PAREN {
+		//               assert(!root, "Expressions are not allowed in the top level scope", #FILE, #LINE);
+		//               expr: Expression = ast_create_expr(ast, block.scope, false);
+		//               expr_stmt: Expression_Statement = Expression_Statement{ expr };
+		//               stmt: Statement = Statement{ expr_stmt };
+		//               array_append(block.statements, stmt);
+		//           } else if is_operator(peek) || peek.tt == TK_OPEN_PAREN {
+		//               if root {
+		//                   print_token(current_token);
+		//               }
+		//               assert(!root, "Expressions are not allowed in the top level scope", #FILE, #LINE);
+		//               expr: Expression = ast_create_expr(ast, block.scope, false);
+		//               expr_stmt: Expression_Statement = Expression_Statement{ expr };
+		//               stmt: Statement = Statement{ expr_stmt };
+		//               array_append(block.statements, stmt);
+		//           } else {
+		//               tmp: string = current_token.tok;
+		//               printf("Unexpected Token: '%s'\n".ptr, tmp.ptr);
+		//               print_token(current_token);
+		//               panic("", #FILE, #LINE);
+		//           }
+		// } else if current_token.tt == TK_RETURN {
+		//           advance(ast);
+		//           current_token = get_current_token(ast);
+		//           expr: *Expression = 0;
+		//           if current_token.tt != TK_SEMICOLON {
+		//               expr_tmp: Expression = ast_create_expr(ast, block.scope, false);
+		//               expr = calloc(1, sizeof(Expression));
+		//               return_node: Return_Node = Return_Node{ expr };
+		//               memcpy(return_node.expr, &expr_tmp, sizeof(Expression));
+		//               ast_match(ast, TK_SEMICOLON, #FILE, #LINE);
+		//               stmt: Statement = Statement{ return_node };
+		//               array_append(block.statements, stmt);
+		//           } else {
+		//               return_node: Return_Node = Return_Node{ expr };
+		//               ast_match(ast, TK_SEMICOLON, #FILE, #LINE);
+		//               stmt: Statement = Statement{ return_node };
+		//               array_append(block.statements, stmt);
+		//           }
+		//       } else if current_token.tt == TK_OPEN_PAREN {
+		//           assert(!root, "Expressions are not allowed in the top level scope", #FILE, #LINE);
+		//           expr: Expression = ast_create_expr(ast, block.scope, false);
+		//           expr_stmt: Expression_Statement = Expression_Statement{ expr };
+		//           stmt: Statement = Statement{ expr_stmt };
+		//           array_append(block.statements, stmt);
+		//       } else if current_token.tt == TK_IF {
+		//           if_node: If_Node = ast_create_if(ast, block.scope);
+		//           expr_stmt_with_block: Expression_Statement_With_Block = Expression_Statement_With_Block{ if_node };
+		//           expr_stmt: Expression_Statement = Expression_Statement{ expr_stmt_with_block };
+		//           stmt: Statement = Statement{ expr_stmt };
+		//           array_append(block.statements, stmt);
+		//       } else if current_token.tt == TK_FOR {
+		//           for_node: For_Node = ast_create_for(ast, block.scope);
+		//           expr_stmt_with_block: Expression_Statement_With_Block = Expression_Statement_With_Block{ for_node };
+		//           expr_stmt: Expression_Statement = Expression_Statement{ expr_stmt_with_block };
+		//           stmt: Statement = Statement{ expr_stmt };
+		//           array_append(block.statements, stmt);
+		//       } else {
+		//           tmp: string = current_token.tok;
+		//           printf("Unexpected Token: '%s'\n".ptr, tmp.ptr);
+		//           panic("", #FILE, #LINE);
+		//       }
+        
+        stmt: *Statement = create_statement(ast, block.scope);
+        if stmt != 0 {
+            array_append(block.statements, stmt[0]);
         }
-
 		advance(ast);
 		if ast.index >= array_size(ast.tokens) {
 			break;
@@ -1340,7 +1551,7 @@ print_expression: proc(expr_: *Expression, indentations: i32) {
             printf("UnaryOp: %s\n".ptr, op_str.ptr);
             print_indentations(indentations + 2);
             printf("expr:\n".ptr);
-            print_expression(e.expr, indentations + 4);
+            print_expression(e.base, indentations + 4);
         },
         Struct_Init_Node => {
                 //StructDeclaration(Some(Token { x: 23, y: 16, tok: "Vector2", tt: Word, filename: "hello.ce" })):
@@ -1505,7 +1716,7 @@ print_for: proc(for_node: *For_Node, indentations: i32) {
      printf("For Statement (TODO):\n".ptr);
      print_indentations(indentations);
      if for_node.is_classic_for {
-         todo("printing for classical for loops", #FILE, #LINE);
+         // todo("printing for classical for loops", #FILE, #LINE);
      }
      printf("Condition:\n".ptr);
      if for_node.condition {

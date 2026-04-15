@@ -7,8 +7,7 @@ Token: type struct {
 	filename: string
 }
 
-// no enums yet lol
-// TokenType "Enum"
+// TokenType "Enum" -- no enums yet
 TK_UNKNOWN:       u8 = 1;
 TK_AT:            u8 = 2;
 TK_PLUS:          u8 = 3;
@@ -64,6 +63,8 @@ TK_LOGICAL_AND:   u8 = 52;
 TK_LEFT_SHIFT:    u8 = 53;
 TK_RIGHT_SHIFT:   u8 = 54;
 TK_TILDE:         u8 = 55;
+TK_ADD_ASSIGN:    u8 = 56;
+TK_SUB_ASSIGN:    u8 = 57;
 
 clone_string: proc(str: string) -> string {
 	ptr: *u8;
@@ -203,6 +204,10 @@ get_double_delim_tt: proc(c: u8, p: u8) -> u8 {
         return TK_RIGHT_SHIFT;
     } else if c == '<' && p == '<' {
         return TK_LEFT_SHIFT;
+    } else if c == '+' && p == '=' {
+        return TK_ADD_ASSIGN;
+    } else if c == '-' && p == '=' {
+        return TK_SUB_ASSIGN;
     } else {
         return TK_UNKNOWN;
     }
@@ -230,6 +235,10 @@ is_double_delim: proc(c: u8, p: u8) -> u8 {
     } else if c == '>' && p == '>' {
         return true;
     } else if c == '<' && p == '<' {
+        return true;
+    } else if c == '+' && p == '=' {
+        return true;
+    } else if c == '-' && p == '=' {
         return true;
     } else {
         return false;
@@ -643,6 +652,10 @@ get_tt_string_repr: proc(tt: u8) -> string {
         return "TK_RIGHT_SHIFT";
     } else if tt == TK_TILDE {
         return "TK_TILDE";
+    } else if tt == TK_ADD_ASSIGN {
+        return "TK_ADD_ASSIGN";
+    } else if tt == TK_SUB_ASSIGN {
+        return "TK_SUB_ASSIGN";
 	} else {
 		panic("unreachable (get_tt_string_repr)", #FILE, #LINE);
 	}

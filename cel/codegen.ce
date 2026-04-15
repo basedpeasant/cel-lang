@@ -401,6 +401,10 @@ walk_expression: proc(g: *Generator, expr_: *Expression) {
                 sb_push_str(g.output, " >> ");
             } else if e.op == OP_BITWISE_XOR {
                 sb_push_str(g.output, " ^ ");
+            } else if e.op == OP_ADD_ASSIGN {
+                sb_push_str(g.output, " += ");
+            } else if e.op == OP_SUB_ASSIGN {
+                sb_push_str(g.output, " -= ");
             } else {
                 panic("Operator codegen not implemented yet", #FILE, #LINE);
             }
@@ -445,11 +449,18 @@ walk_expression: proc(g: *Generator, expr_: *Expression) {
                 sb_push_str(g.output, "~");
             } else if e.op == OP_REFERENCE {
                 sb_push_str(g.output, "&");
+            } else if e.op == OP_ARRAY_INDEX {
+                // TODO: I think this might not work with multi dimensional arrays 
+                walk_expression(g, e.base);
+                sb_push_str(g.output, "[");
+                walk_expression(g, e.expr);
+                sb_push_str(g.output, "]");
+                return;
             } else {
                 printf("%d\n".ptr, e.op);
                 panic("not implemented unary operation yet or invalid unary operation", #FILE, #LINE);
             }
-            walk_expression(g, e.expr);
+            walk_expression(g, e.base);
         },
         Struct_Init_Node => {
             sb_push(g.output, '{');
@@ -603,7 +614,18 @@ walk_if_node: proc(g: *Generator, if_node: *If_Node) {
 
 walk_for_node: proc(g: *Generator, for_node: *For_Node) {
     if for_node.is_classic_for {
-        todo("implement codegen for classic for", #FILE, #LINE);
+        sb_push_str(g.output, "for(");
+        assert(for_node.init != 0, "cannot have empty statements in for loops", #FILE, #LINE);
+        assert(for_node.condition != 0, "cannot have empty conditions in for loops", #FILE, #LINE);
+        assert(for_node.post != 0, "cannot have empty post-expressions in for loops", #FILE, #LINE);
+
+        walk_statement(g, for_node.init); // probably already adds a semicolon
+        walk_expression(g, for_node.condition);
+        sb_push_str(g.output, ";");
+        walk_expression(g, for_node.post);
+
+        sb_push_str(g.output, ")\n");
+        walk_block(g, &for_node.block);
     } else {
         sb_push_str(g.output, "while(");
         if for_node.condition == 0 {
@@ -628,6 +650,38 @@ walk_expression_with_block: proc(g: *Generator, expr_block_: *Expression_Stateme
     }
 }
 
+walk_statement: proc(g: *Generator, s: *Statement) {
+    statement: *Statement = s;
+    match n := statement {
+        Expression_Statement => {
+            es: *Expression_Statement = n;
+            match e := es {
+                Expression => {
+                    walk_expression(g, e);
+                    sb_push_str(g.output, ";\n");
+                },
+                Expression_Statement_With_Block => {
+                    walk_expression_with_block(g, e);
+                }
+            }
+        }
+        Decl_Node => {
+            walk_decl(g, n);
+            // NOTE: semi-colon ; is added in walk_decl instead of here because
+            //       its too troublesome to check if the decl_node is a proc or not
+        }
+        Return_Node => {
+            if n.expr == 0 {
+                sb_push_str(g.output, "return;");
+            } else {
+                sb_push_str(g.output, "return ");
+                walk_expression(g, n.expr);
+                sb_push_str(g.output, ";\n");
+            }
+        }
+    }
+}
+
 walk_block: proc(g: *Generator, block: *Block_Node) {
     if block.scope != 0 {
         output_indentations(g);
@@ -641,30 +695,7 @@ walk_block: proc(g: *Generator, block: *Block_Node) {
         if block.scope != 0 {
             output_indentations(g);
         }
-        match n := statement {
-            Expression_Statement => {
-                es: *Expression_Statement = n;
-                match e := es {
-                    Expression => {
-                        walk_expression(g, e);
-                        sb_push_str(g.output, ";\n");
-                    },
-                    Expression_Statement_With_Block => {
-                        walk_expression_with_block(g, e);
-                    }
-                }
-            }
-            Decl_Node => {
-                walk_decl(g, n);
-                // NOTE: semi-colon ; is added in walk_decl instead of here because
-                //       its too troublesome to check if the decl_node is a proc or not
-            }
-            Return_Node => {
-                sb_push_str(g.output, "return ");
-                walk_expression(g, n.expr);
-                sb_push_str(g.output, ";\n");
-            }
-        }
+        walk_statement(g, &statement);
         // TODO/NOTE: ideally the semicolon would be added here instead of all the other places
         //            but because the proc are part of the variable decl and the choice 
         //            DX isn't good enough yet this is the only way we can do it
