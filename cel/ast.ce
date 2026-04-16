@@ -1216,7 +1216,7 @@ create_statement: proc(ast: *Ast, scope: u32) -> *Statement {
                     // do nothing
                 }
                 Type_Pointer => {
-                    todo("Type_Pointer not implemented yet", #FILE, #LINE);
+                    // do nothing
                 }
                 Type_Proc => {
                     type_.name = name;
@@ -1321,6 +1321,22 @@ create_statement: proc(ast: *Ast, scope: u32) -> *Statement {
         expr_stmt: Expression_Statement = Expression_Statement{ expr_stmt_with_block };
         stmt: Statement = Statement{ expr_stmt };
         stmt_ret = copy_statement(stmt);
+    } else if current_token.tt == TK_INCLUDE {
+        advance(ast);
+        filepath: *Token = get_current_token(ast);
+        advance(ast);
+        ast_match(ast, TK_SEMICOLON, #FILE, #LINE);
+        filepath_str: string = filepath.tok;
+        file_src: string = read_file_to_string(filepath_str);
+        // TODO: take the path of the current file into account like the rust version does
+        // TODO: FIX this
+        tokens: [+]Token = tokenize(&file_src, filepath_str);
+        for i: i32 = 0; i < array_size(tokens); i = i + 1 {
+            array_insert(ast.tokens, tokens[i], ast.index + i);
+        }
+        for i: i32 = 0; i < array_size(ast.tokens); i = i + 1 {
+            print_token(&ast.tokens[i]);
+        }
     } else {
         print_token(current_token);
         tmp: string = current_token.tok;
@@ -1584,6 +1600,7 @@ print_expression: proc(expr_: *Expression, indentations: i32) {
 print_decl: proc(decl: *Decl_Node, indentations: i32) {
     // TODO: this proc has a lot of duplicate code which needs to be refactored
     //       refactor once dev DX is better lol
+    // TODO: these prints are not actually working, need to fix it
 	tmp: *Decl_Node = decl;
 	match decl_ := tmp {
 		Variable_Decl_Node => {
@@ -1608,7 +1625,22 @@ print_decl: proc(decl: *Decl_Node, indentations: i32) {
                     }
 				}
 				Type_Pointer => {
-					todo("Type_Pointer not implemented (print_decl)", #FILE, #LINE);
+					print_indentations(indentations + 2);
+					printf("Variable Declaration:\n".ptr);
+					print_indentations(indentations + 4);
+					token_symbol: *Token = decl_.symbol;
+					name_str: string = token_symbol.tok;
+					printf("name: '%s'\n".ptr, name_str.ptr);
+                    // TODO: print the type
+                    if decl_.rhs != 0 {
+                        print_indentations(indentations + 4);
+                        printf("Initializer:\n".ptr);
+                        print_expression(decl_.rhs, indentations + 6);
+                        // todo("Type_Builtin printing rhs (print_decl)", #FILE, #LINE);
+                    } else {
+                        print_indentations(indentations + 4);
+                        printf("Initializer: (none)\n".ptr);
+                    }
 				}
 				Type_Proc => {
 					print_indentations(indentations + 2);

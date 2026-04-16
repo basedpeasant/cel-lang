@@ -963,6 +963,28 @@ typedef struct {
       array_meta->size++; \
     } while(0);
 
+#define array_insert(DA, ITEM, INDEX) \
+    do { \
+        Array_Metadata* array_meta = get_meta(DA); \
+        if (array_meta->size >= array_meta->capacity) { \
+            unsigned long new_capacity = (array_meta->capacity == 0) ? ARRAY_INITIAL_CAPACITY : array_meta->capacity * 2; \
+            array_meta = (Array_Metadata*) realloc(array_meta, sizeof(Array_Metadata) + new_capacity * array_meta->type_size); \
+            array_meta->capacity = new_capacity; \
+            void** tmp = (void**)&DA; \
+            *tmp = array_meta->data; \
+        } \
+        char* data = (char*)DA; \
+        unsigned long item_size = array_meta->type_size; \
+        for (unsigned long i = array_meta->size; i > INDEX; i--) { \
+            memcpy(data + i * item_size,  \
+                   data + (i - 1) * item_size,  \
+                   item_size); \
+        } \
+        memcpy((char*)DA + INDEX * array_meta->type_size, &ITEM, array_meta->type_size); \
+        array_meta->size++; \
+    } while(0); 
+
+
 #define array_type_size(DA) get_meta(DA)->type_size
 
 #define array_foreach(TYPE, ITEM, DA) \

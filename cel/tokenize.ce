@@ -657,6 +657,7 @@ get_tt_string_repr: proc(tt: u8) -> string {
     } else if tt == TK_SUB_ASSIGN {
         return "TK_SUB_ASSIGN";
 	} else {
+        printf("%d\n".ptr, tt);
 		panic("unreachable (get_tt_string_repr)", #FILE, #LINE);
 	}
 }
