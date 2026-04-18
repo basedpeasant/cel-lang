@@ -1331,9 +1331,12 @@ create_statement: proc(ast: *Ast, scope: u32) -> *Statement {
         // TODO: take the path of the current file into account like the rust version does
         // TODO: FIX this
         tokens: [+]Token = tokenize(&file_src, filepath_str);
-        for i: i32 = 0; i < array_size(tokens); i = i + 1 {
-            array_insert(ast.tokens, tokens[i], ast.index + i);
+        for i: i32 = array_size(tokens) - 1; i >= 0; i = i - 1 {
+            // we doin plus 1 because we want to place the tokens after the index
+            array_insert(ast.tokens, tokens[i], ast.index + 1);
         }
+    
+        // TODO: remove, this is debug printing to check that include works
         for i: i32 = 0; i < array_size(ast.tokens); i = i + 1 {
             print_token(&ast.tokens[i]);
         }

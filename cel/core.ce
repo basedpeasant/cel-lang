@@ -11,6 +11,7 @@ read: @extern proc(fd: i32, buf: void_ptr, count: u32) -> i32;
 open: @extern proc(pathname: *u8, flags: i32, mode: u32) -> i32;
 close: @extern proc(fd: i32) -> i32;
 memcpy: @extern proc(dest: void_ptr, src: void_ptr, n: u32) -> void_ptr;
+memmove: @extern proc(dest: void_ptr, src: void_ptr, n: u32) -> void_ptr;
 strlen: @extern proc(s: *u8) -> i32;
 fork: @extern proc() -> i32;
 execvp: @extern proc(file: *u8, argv: **u8) -> i32;
