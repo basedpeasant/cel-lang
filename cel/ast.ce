@@ -1190,6 +1190,37 @@ copy_statement: proc(stmt: Statement) -> *Statement {
     return stmt_alloc;
 }
 
+add_current_directory: proc(ast: *Ast, filename: string) -> string {
+    // attempt to try to get the correct directory
+    // TODO/NOTE: this is not a great solution but works for now
+    filepath_tmp: Token = ast.tokens[0];
+    filepath_tmp_str: string = filepath_tmp.filename;
+    cut_index: i32 = 0;
+    for i: i32 = 0; i < filepath_tmp_str.length; i = i + 1 {
+        if filepath_tmp_str.ptr[i] == '/' {
+            cut_index = i;  
+        }
+    }
+
+    ret: string;
+    if cut_index != 0 {
+        sb: String_Builder;
+        for i: i32 = 0; i < cut_index + 1; i = i + 1 {
+            sb_push(&sb, filepath_tmp_str.ptr[i]);
+        }
+        for i: i32 = 0; i < filename.length; i = i + 1 {
+            sb_push(&sb, filename.ptr[i]);
+        }
+
+        ret = sb_to_string(&sb);
+        sb_free(&sb);
+    } else {
+        ret = filename;
+    }
+
+    return ret;
+}
+
 create_statement: proc(ast: *Ast, scope: u32) -> *Statement {
     current_token: *Token = get_current_token(ast);
     stmt_ret: *Statement = 0;
@@ -1327,7 +1358,9 @@ create_statement: proc(ast: *Ast, scope: u32) -> *Statement {
         advance(ast);
         ast_match(ast, TK_SEMICOLON, #FILE, #LINE);
         filepath_str: string = filepath.tok;
-        file_src: string = read_file_to_string(filepath_str);
+        new_filename: string = add_current_directory(ast, filepath_str);
+        
+        file_src: string = read_file_to_string(new_filename);
         // TODO: take the path of the current file into account like the rust version does
         // TODO: FIX this
         tokens: [+]Token = tokenize(&file_src, filepath_str);
