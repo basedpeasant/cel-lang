@@ -1193,6 +1193,9 @@ copy_statement: proc(stmt: Statement) -> *Statement {
 add_current_directory: proc(ast: *Ast, filename: string) -> string {
     // attempt to try to get the correct directory
     // TODO/NOTE: this is not a great solution but works for now
+    // TODO/NOTE: this gets the file directory for the very first file
+    //            however this likely doesn't work when you start involving
+    //            multiple files
     filepath_tmp: Token = ast.tokens[0];
     filepath_tmp_str: string = filepath_tmp.filename;
     cut_index: i32 = 0;
