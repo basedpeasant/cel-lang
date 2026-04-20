@@ -976,7 +976,7 @@ typedef struct {
         char* data = (char*)DA; \
         unsigned long item_size = array_meta->type_size; \
         for (unsigned long i = array_meta->size; i > INDEX; i--) { \
-            memcpy(data + i * item_size,  \
+            memmove(data + i * item_size,  \
                    data + (i - 1) * item_size,  \
                    item_size); \
         } \

@@ -57,7 +57,7 @@ Type_Array: type struct {
 }
 
 Type_Dynamic_Array: type struct {
-	
+    array_type: *Type,	
 }
 
 Type_Choice: type struct {
@@ -557,7 +557,15 @@ extract_type: proc(ast: *Ast) -> Type {
         advance(ast);
         current_token = get_current_token(ast);
         if current_token.tt == TK_PLUS {
-            todo("implement dynamic arrays", #FILE, #LINE);
+            advance(ast);
+            ast_match(ast, TK_CLOSE_SQUARE, #FILE, #LINE);
+            advance(ast);
+            array_type_tmp: Type = extract_type(ast);
+            array_type: *Type = calloc(1, sizeof(Type));
+            memcpy(array_type, &array_type_tmp, sizeof(Type));
+            array: Type_Dynamic_Array = Type_Array{ array_type };
+            ret: Type = Type{ array };
+            return ret;
         } else if current_token.tt == TK_CLOSE_SQUARE {
             todo("implement slices", #FILE, #LINE);
         } else if current_token.tt == TK_WORD || current_token.tt == TK_NUMBER || is_operator(current_token) {
@@ -1266,7 +1274,7 @@ create_statement: proc(ast: *Ast, scope: u32) -> *Statement {
                     // do nothing
                 }
                 Type_Dynamic_Array => {
-                    todo("Type_Dynamic_Array not implemented yet", #FILE, #LINE);
+                    // do nothing
                 }
                 Type_Choice => {
                     todo("Type_Choice not implemented yet", #FILE, #LINE);
@@ -1721,7 +1729,22 @@ print_decl: proc(decl: *Decl_Node, indentations: i32) {
                     }
 				}
 				Type_Dynamic_Array => {
-					todo("Type_Dynamic_Array not implemented (print_decl)", #FILE, #LINE);
+					print_indentations(indentations + 2);
+					printf("Variable Declaration (DynamicArray):\n".ptr);
+					print_indentations(indentations + 4);
+					token_symbol: *Token = decl_.symbol;
+					name_str: string = token_symbol.tok;
+					printf("name: '%s'\n".ptr, name_str.ptr);
+                    // TODO: print the type
+                    if decl_.rhs != 0 {
+                        print_indentations(indentations + 4);
+                        printf("Initializer:\n".ptr);
+                        print_expression(decl_.rhs, indentations + 6);
+                        // todo("Type_Builtin printing rhs (print_decl)", #FILE, #LINE);
+                    } else {
+                        print_indentations(indentations + 4);
+                        printf("Initializer: (none)\n".ptr);
+                    }
 				}
 				Type_Choice => {
 					todo("Type_Choice not implemented (print_decl)", #FILE, #LINE);
