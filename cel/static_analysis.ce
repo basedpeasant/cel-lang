@@ -1,0 +1,193 @@
+
+
+State: type struct {
+    call_stack: [+]*Token, // needs to be changed
+    ast: *Ast
+}
+
+push_call_stack: proc(call_stack: [+]*Token, call: *Token) {
+    array_append(call_stack, call);
+}
+
+pop_call_stack: proc(call_stack: [+]*Token) -> *Token {
+    index: u32 = array_size(call_stack) - 1;
+    array_resize(call_stack, index); // basically subtracting one from size
+    ret: *Token = call_stack[index];
+    return ret; 
+}
+
+Error: type struct {
+    err: string,
+}
+
+lookup_proc: proc(scopes: [+]Scope, current_scope: u32, name: string) -> *Variable_Decl_Node {
+    scope: Scope = scopes[current_scope];
+    for i: i32 = 0; i < array_size(scope.map); i = i + 1 {
+        var_decl: *Variable_Decl_Node = &scope.map[i];
+        var_type: Type = var_decl.var_type;
+        // we only care about procs here
+        match t := var_type {
+            Type_Builtin => {},
+            Type_Pointer => {},
+            Type_Proc => {
+                name_tmp: *Token = t.name;
+                name_t: string = name_tmp.tok;
+                if strcmp(name, name_t) {
+                    return var_decl;
+                }
+            },
+            Type_Array => {},
+            Type_Dynamic_Array => {},
+            Type_Choice => {},
+            Type_Custom_Decl => {},
+            Type_Custom => {},
+            Type_Unknown => {}
+        }
+    }
+    if current_scope == 0 {
+        return 0;
+    } else {
+        lookup_proc(scopes, scope.parent_scope, name);
+    }
+}
+
+get_proc_return_type: proc(p: *Variable_Decl_Node) -> *Type {
+    // TODO: this is only like this because we are forced to match
+    //       on every Type, once we can coerce choice types to one
+    //       single type we should change this pattern where needed
+    //       because otherwise we have to type out every single choice
+    //       despite knowing before hand which one it is guaranteed to be
+    proc_var: *Variable_Decl_Node = p;
+    proc_var_type: Type = proc_var.var_type;
+    match p_ := proc_var_type {
+        Type_Builtin => { assert(false, "Not expecting Type_Builtin", #FILE, #LINE); },
+        Type_Pointer => { assert(false, "Not expecting Type_Pointer", #FILE, #LINE); },
+        Type_Proc => {
+            ret_type: *Type = p_.return_type;
+            return ret_type;
+        },
+        Type_Array => { assert(false, "Not expecting Type_Array", #FILE, #LINE); },
+        Type_Dynamic_Array => { assert(false, "Not expecting Type_Dynamic_Array", #FILE, #LINE); },
+        Type_Choice => { assert(false, "Not expecting Type_Choice", #FILE, #LINE); },
+        Type_Custom_Decl => { assert(false, "Not expecting Type_Custom_Decl", #FILE, #LINE); },
+        Type_Custom => { assert(false, "Not expecting Type_Custom", #FILE, #LINE); },
+        Type_Unknown => {
+            todo("Unexpected Unknown", #FILE, #LINE);
+        }
+    }
+}
+
+match_expression: proc(s: *State, _expr: *Expression) -> u32 {
+    // TODO/NOTE: Have to do this because of bug
+    expr: *Expression = _expr;
+    ast: *Ast = s.ast;
+    match e := expr {
+        Binary_Node => { 
+            todo("", #FILE, #LINE);
+        },
+        Number_Node => { 
+            // todo("", #FILE, #LINE);
+        },
+        Variable_Node => { 
+            // lookup var_decl to check the type
+            todo("", #FILE, #LINE);
+        },
+        Call_Node => { 
+            // lookup proc var_decl to check the return type
+            name_tok: *Token = e.name;
+            name: string = name_tok.tok;
+            var_decl: *Variable_Decl_Node = lookup_proc(ast.scopes, ast.current_scope, name);
+            if var_decl == 0 {
+                printf("%s\n".ptr, name.ptr);
+                panic("Could not find proc (lookup_proc)\n", #FILE, #LINE);
+            }
+            ret_type: *Type = get_proc_return_type(var_decl);
+            if ret_type != 0 {
+                printf("WARNING: \n".ptr);
+            }
+            todo("", #FILE, #LINE);
+        },
+        String_Literal => { 
+            // todo("", #FILE, #LINE);
+        },
+        Unary_Node => { 
+            todo("", #FILE, #LINE);
+        },
+        Struct_Init_Node => { 
+            todo("", #FILE, #LINE);
+        },
+        Array_Literal => { 
+            todo("", #FILE, #LINE);
+        },
+    } 
+}
+
+sa_walk_var_decl: proc(s: *State, _v: *Variable_Decl_Node) {
+    // TODO/NOTE: Have to do this because of bug
+    v: *Variable_Decl_Node = _v; 
+
+    // TODO: need to check every type to see if the rhs matches the 
+    //       declared type
+    var_type: Type = v.var_type;
+    match t := var_type {
+        Type_Builtin => {},
+        Type_Pointer => {},
+        Type_Proc => {
+            // TODO: I guess need to check default values here?
+            sa_walk_block(s, &t.block);
+        },
+        Type_Array => {},
+        Type_Dynamic_Array => {},
+        Type_Choice => {},
+        Type_Custom_Decl => {},
+        Type_Custom => {},
+        Type_Unknown => {
+            match_expression(s, v.rhs);
+        }
+    }
+}
+
+sa_walk_decl: proc(s: *State, _decl: *Decl_Node) {
+    // TODO/NOTE: Have to do this because of bug
+    decl: *Decl_Node = _decl; 
+    match d := decl {
+        Variable_Decl_Node => {
+            sa_walk_var_decl(s, d);
+        }
+    }
+}
+
+sa_walk_block: proc(s: *State, block: *Block_Node) {
+    isRoot: bool = block.scope == 0;
+    ast: *Ast = s.ast;
+    ast.current_scope = block.scope; 
+    for i: i32 = 0; i < array_size(block.statements); i = i + 1 {
+        statement: Statement = block.statements[i];
+        match st := statement {
+            Expression_Statement => {
+                stmt: *Expression_Statement = st;
+                match es := stmt {
+                    Expression => {
+                        match_expression(s, es);
+                    },
+                    Expression_Statement_With_Block => {
+                        todo("", #FILE, #LINE);
+                    }
+                }
+            },
+            Decl_Node => {
+                sa_walk_decl(s, st); 
+            },
+            Return_Node => {
+                // do nothing (for now)
+            }
+        }
+    }
+
+}
+
+start_analysis: proc(ast: *Ast) {
+    printf("Starting Static Analysis...\n".ptr);
+    s: State = State { 0, ast };
+    sa_walk_block(&s, &ast.root_block);
+}

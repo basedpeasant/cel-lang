@@ -50,6 +50,9 @@ generate_types: proc(g: *Generator) {
             },
             Type_Custom => {
                 unreachable("unexpected type in code generation, only custom types and choice types should be here", #FILE, #LINE);
+            },
+            Type_Unknown => {
+                unreachable("unexpected type in code generation, only custom types and choice types should be here", #FILE, #LINE);
             }
         }
     }
@@ -100,6 +103,9 @@ generate_types: proc(g: *Generator) {
                 sb_push_str(g.output, "};\n");
             },
             Type_Custom => {
+                unreachable("unexpected type in code generation, only custom types and choice types should be here", #FILE, #LINE);
+            },
+            Type_Unknown => {
                 unreachable("unexpected type in code generation, only custom types and choice types should be here", #FILE, #LINE);
             }
         }
@@ -288,6 +294,9 @@ get_c_type: proc(type__: Type) -> string {
         }
         Type_Custom => {
             todo("get_c_type (Type_Custom)", #FILE, #LINE);
+        }
+        Type_Unknown => {
+            todo("get_c_type (Type_Unknown)", #FILE, #LINE);
         }
     } 
 }
@@ -528,13 +537,16 @@ walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
         },
         Type_Custom_Decl => {
             unreachable("types should not be in the list of statements in any blocks", #FILE, #LINE);
-        }
+        },
         Type_Custom => {
             type_tok: *Token = t.name;
             type_str: string = type_tok.tok;
             sb_push_str(g.output, type_str);
             sb_push(g.output, ' ');
             is_type_custom = true;
+        },
+        Type_Unknown => {
+            todo("walk for Type_Unknown", #FILE, #LINE);
         }
     }
     if !skip {
@@ -589,6 +601,9 @@ walk_decl: proc(g: *Generator, decl_: *Decl_Node) {
                     sb_push_str(g.output, ";\n");
                 }
                 Type_Custom => {
+                    sb_push_str(g.output, ";\n");
+                }
+                Type_Unknown => {
                     sb_push_str(g.output, ";\n");
                 }
             }

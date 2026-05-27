@@ -21,6 +21,7 @@ main: proc(argc: i32, argv: **u8) {
 	tokens: [+]Token = tokenize(&src, filename);
 	print_tokens(tokens);
 	ast: Ast = ast_start(tokens);
+    start_analysis(&ast);
 	printf("Exiting...\n".ptr);
 
     codegen_start(&ast);
