@@ -482,6 +482,7 @@ tokenize: proc(src: *string, filename: string) -> [+]Token {
 					c = src.ptr[i];
 					i = i + 1;
 				}
+                i = i - 1; // let the for loop handle the new line
 				continue;
 			}
 			if is_double_delim(c, p) {
