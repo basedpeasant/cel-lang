@@ -77,7 +77,7 @@ get_proc_return_type: proc(p: *Variable_Decl_Node) -> *Type {
     }
 }
 
-match_expression: proc(s: *State, _expr: *Expression) -> u32 {
+match_expression: proc(s: *State, _expr: *Expression) -> *Type {
     // TODO/NOTE: Have to do this because of bug
     expr: *Expression = _expr;
     ast: *Ast = s.ast;
@@ -103,9 +103,11 @@ match_expression: proc(s: *State, _expr: *Expression) -> u32 {
             }
             ret_type: *Type = get_proc_return_type(var_decl);
             if ret_type != 0 {
-                printf("WARNING: \n".ptr);
+                // TODO: need to add the line info etc
+                printf("WARNING: result for call is not used\n".ptr);
+                // NOTE: this is not correct actually
             }
-            todo("", #FILE, #LINE);
+            return ret_type;
         },
         String_Literal => { 
             // todo("", #FILE, #LINE);
