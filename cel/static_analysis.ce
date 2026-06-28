@@ -104,7 +104,13 @@ match_expression: proc(s: *State, _expr: *Expression) -> *Type {
             ret_type: *Type = get_proc_return_type(var_decl);
             if ret_type != 0 {
                 // TODO: need to add the line info etc
-                printf("WARNING: result for call is not used\n".ptr);
+                // Sample from Go: ./main.go:10:2: declared and not used: a
+                filename: string = name_tok.filename;
+                printf("./%s:%d:%d: WARNING: result for call '%s' is not used\n".ptr, 
+                    filename.ptr, 
+                    name_tok.y, 
+                    name_tok.x,
+                    name.ptr);
                 // NOTE: this is not correct actually
             }
             return ret_type;

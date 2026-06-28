@@ -465,6 +465,8 @@ walk_expression: proc(g: *Generator, expr_: *Expression) {
                 walk_expression(g, e.expr);
                 sb_push_str(g.output, "]");
                 return;
+            } else if e.op == OP_DEREF {
+                sb_push_str(g.output, "*");
             } else {
                 printf("%d\n".ptr, e.op);
                 panic("not implemented unary operation yet or invalid unary operation", #FILE, #LINE);
@@ -546,7 +548,7 @@ walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
             is_type_custom = true;
         },
         Type_Unknown => {
-            todo("walk for Type_Unknown", #FILE, #LINE);
+            assert(false, "Type_Unknown should not appear in codegen", #FILE, #LINE);
         }
     }
     if !skip {

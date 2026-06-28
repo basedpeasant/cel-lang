@@ -155,6 +155,7 @@ OP_BITWISE_XOR: i32 = 31;
 OP_BITWISE_NOT: i32 = 32;
 OP_ADD_ASSIGN: i32 = 33;
 OP_SUB_ASSIGN: i32 = 34;
+OP_DEREF: i32 = 35;
 
 Unary_Node: type struct {
     op: i32,
@@ -842,8 +843,9 @@ parse_primary: proc(ast: *Ast, scope: u32, in_if: bool) -> Expression {
         ret: Expression = Expression{ array_lit };
         return ret;
     } else {
+        printf("-----------------------------------\n".ptr);
         print_token(current_token);
-        breakpoint(0);
+        // breakpoint(0);
         panic("(Parse Primary) Unexpected Token", #FILE, #LINE);
     }
 }
@@ -899,6 +901,8 @@ get_op_string: proc(op: i32) -> string {
         return "+=";
     } else if op == OP_SUB_ASSIGN {
         return "-=";
+    } else if op == OP_DEREF {
+        return ".*";
     } else {
         todo("print for get_op_string", #FILE, #LINE);
     }
@@ -958,6 +962,8 @@ get_op: proc(token: *Token) -> i32 {
         return OP_ADD_ASSIGN;
     } else if token.tt == TK_SUB_ASSIGN {
         return OP_SUB_ASSIGN;
+    } else if token.tt == TK_DEREF {
+        return OP_DEREF;
     } else {
         str: string = token.tok;
         printf("%s\n".ptr, str.ptr);
@@ -968,6 +974,8 @@ get_op: proc(token: *Token) -> i32 {
 get_prec: proc(ast: *Ast, token: *Token) -> i32 {
     // TODO: other ops
     if token.tt == TK_OPEN_SQUARE || token.tt == TK_DOT {
+        return 14;
+    } else if token.tt == TK_DEREF {
         return 13;
     } else if token.tt == TK_TILDE {
         return 12;
@@ -1053,6 +1061,19 @@ ast_create_expr_with_prec: proc(ast: *Ast, min_prec: i32, scope: u32, in_if: boo
         op_token: *Token = get_current_token(ast);
         if op_token == 0 {
             break;
+        }
+        // NOTE: not sure if this is ok but should work for now.
+        if op_token.tt == TK_DEREF {
+            //construct a Unary node and wrap lhs with it
+            base_alloc: *Expression = calloc(1, sizeof(Expression));
+            op: i32 = get_op(op_token);
+            memcpy(base_alloc, &lhs, sizeof(Expression));
+            base_alloc._tag = get_expr_tag(&lhs);
+            unary: Unary_Node = Unary_Node{ op, base_alloc, 0 };
+            lhs_new: Expression = Expression{ unary };
+            lhs = lhs_new;
+            advance(ast);
+            op_token = get_current_token(ast);
         }
         prec: i32 = get_prec(ast, op_token);
 

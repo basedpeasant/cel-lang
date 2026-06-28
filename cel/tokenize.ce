@@ -65,6 +65,7 @@ TK_RIGHT_SHIFT:   u8 = 54;
 TK_TILDE:         u8 = 55;
 TK_ADD_ASSIGN:    u8 = 56;
 TK_SUB_ASSIGN:    u8 = 57;
+TK_DEREF:         u8 = 58;
 
 clone_string: proc(str: string) -> string {
 	ptr: *u8;
@@ -208,6 +209,8 @@ get_double_delim_tt: proc(c: u8, p: u8) -> u8 {
         return TK_ADD_ASSIGN;
     } else if c == '-' && p == '=' {
         return TK_SUB_ASSIGN;
+    } else if c == '.' && p == '*' {
+        return TK_DEREF;
     } else {
         return TK_UNKNOWN;
     }
@@ -239,6 +242,8 @@ is_double_delim: proc(c: u8, p: u8) -> u8 {
     } else if c == '+' && p == '=' {
         return true;
     } else if c == '-' && p == '=' {
+        return true;
+    } else if c == '.' && p == '*' {
         return true;
     } else {
         return false;
@@ -657,6 +662,8 @@ get_tt_string_repr: proc(tt: u8) -> string {
         return "TK_ADD_ASSIGN";
     } else if tt == TK_SUB_ASSIGN {
         return "TK_SUB_ASSIGN";
+    } else if tt == TK_DEREF {
+        return "TK_DEREF";
 	} else {
         printf("%d\n".ptr, tt);
 		panic("unreachable (get_tt_string_repr)", #FILE, #LINE);

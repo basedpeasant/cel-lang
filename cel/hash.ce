@@ -1,0 +1,13 @@
+
+
+FNV_OFFSET_BASIS: u64 = 14695981039346656037;
+FNV_PRIME: u64 = 1099511628211;
+
+fnv1a_hash: proc(data: *u8, count: i32) -> u64 {
+    hash: u32 = FNV_OFFSET_BASIS;
+    for i: i32 = 0; i < count - 1; i = i + 1 {
+        hash = hash ^ data[i];
+        hash = hash * FNV_PRIME;
+    }
+    return hash;
+}
