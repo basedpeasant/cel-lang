@@ -325,7 +325,7 @@ walk_proc: proc(g: *Generator, proc_: *Type_Proc) {
         }
         sb_push_str(g.output, ")\n");
     }
-    walk_block(g, &proc_.block);
+    walk_block(g, proc_.block);
 
 }
 

@@ -66,6 +66,7 @@ TK_TILDE:         u8 = 55;
 TK_ADD_ASSIGN:    u8 = 56;
 TK_SUB_ASSIGN:    u8 = 57;
 TK_DEREF:         u8 = 58;
+TK_CONTINUE:      u8 = 59;
 
 clone_string: proc(str: string) -> string {
 	ptr: *u8;
@@ -175,6 +176,10 @@ get_keyword_tt: proc(str: string) -> u8 {
 		return TK_MATCH;
 	} else if strcmp(str, "choice") {
 		return TK_CHOICE;
+    } else if strcmp(str, "continue") {
+        return TK_CONTINUE;
+    } else if strcmp(str, "break") {
+        return TK_BREAK;
 	} else {
 		return TK_UNKNOWN;
 	}
@@ -664,6 +669,8 @@ get_tt_string_repr: proc(tt: u8) -> string {
         return "TK_SUB_ASSIGN";
     } else if tt == TK_DEREF {
         return "TK_DEREF";
+    } else if tt == TK_CONTINUE {
+        return "TK_CONTINUE";
 	} else {
         printf("%d\n".ptr, tt);
 		panic("unreachable (get_tt_string_repr)", #FILE, #LINE);

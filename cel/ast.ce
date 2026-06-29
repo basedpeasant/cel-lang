@@ -15,10 +15,13 @@ TYPE_CUSTOM:               u8 = 12; // TODO probably don't need it, its only for
 TYPE_CUSTOM_DECLARATION:   u8 = 13; // TODO probably don't need it, its only for builtin types
 TYPE_UNKNOWN:              u8 = 14; // FOR TYPE INFERENCE
 
+ATTRIBUTE_EXTERN: u8 = 1;
+ATTRIBUTE_STATIC: u8 = 2;
+ATTRIBUTE_UNKNOWN: u8 = 3;
 Attribute: type struct {
-	
+    kind: u8,
+    //expr: Expression*
 }
-
 
 // this is kind of hacky tbh
 Type_Unknown: type struct {
@@ -56,7 +59,7 @@ Type_Proc: type struct {
 	args: [+]Variable_Decl_Node,
 	return_type: *Type,
 	name: *Token,
-	block: Block_Node,
+	block: *Block_Node,
     default_vals: [+]Expression,
 }
 
@@ -246,12 +249,22 @@ Decl_Node: type choice {
 	Variable_Decl_Node
 }
 
+// this should be an enum actually but we can't do that right now
+Continue_Node: type struct {
+    _dummy: u8,
+}
+
+// this should be an enum actually but we can't do that right now
+Break_Node: type struct {
+    _dummy: u8,
+}
+
 Statement: type choice {
 	Expression_Statement,
 	Decl_Node,
     Return_Node,
-	// Break,
-	// Continue
+    Continue_Node,
+    Break_Node,
 }
 
 Ast: type struct {
@@ -347,6 +360,8 @@ get_type_string: proc(type__: Type) -> string {
                return "i64";
            } else if kind == TYPE_STRING {
                return "string";
+           } else if kind == TYPE_BOOL {
+               return "bool";
            } else {
                printf("\n%d\n".ptr, kind);
                todo("implement get_type_string for Type_Builtin", #FILE, #LINE);
@@ -442,7 +457,33 @@ get_type: proc(token: *Token) -> Type {
 	}
 }
 
+extract_attributes: proc(ast: *Ast) -> [+]Attribute {
+    ret: [+]Attribute;
 
+    for true {
+        current_token: *Token = get_current_token(ast);
+        if current_token.tt == TK_AT {
+            tmp: Attribute = Attribute { ATTRIBUTE_UNKNOWN };
+            advance(ast);
+            current_token = get_current_token(ast);
+            assert(current_token.tt == TK_WORD, "Expected a keyword after @ but got something else", #FILE, #LINE);
+            if strcmp(current_token.tok, "extern") {
+                tmp.kind = ATTRIBUTE_EXTERN;
+                array_append(ret, tmp);
+            } else if strcmp(current_token.tok, "static") {
+                tmp.kind = ATTRIBUTE_STATIC;
+                array_append(ret, tmp);
+            } else {
+                printf("%s".ptr, current_token.tok);
+                panic("Attribute is not recognized", #FILE, #LINE);
+            }
+            advance(ast);
+        } else {
+            break;
+        }
+    }
+    return ret;
+}
 
 extract_type: proc(ast: *Ast) -> Type {
 	current_token: *Token = get_current_token(ast);
@@ -460,12 +501,12 @@ extract_type: proc(ast: *Ast) -> Type {
 			Type_Pointer => {
 				todo("handling for Type_Pointer", #FILE, #LINE);
 			},
+			Type_Proc => {
+				unreachable("handled else where since 'proc' can never be a TK_WORD", #FILE, #LINE);
+			},
 			Type_Array => {
 				todo("handling for Type_Array", #FILE, #LINE);
 			},
-			Type_Proc => {
-				unreachable("handled else where since 'proc' can never be a TK_WORD", #FILE, #LINE);
-			}
 			Type_Dynamic_Array => {
 				todo("handling for Type_Dynamic_Array", #FILE, #LINE);
 			},
@@ -525,13 +566,25 @@ extract_type: proc(ast: *Ast) -> Type {
             type_: Type = extract_type(ast);
             memcpy(return_type, &type_, sizeof(Type));
         }
-		ast_match(ast, TK_OPEN_CURLY, #FILE, #LINE);
-		advance(ast);
-		proc_block: Block_Node = create_block(ast, false, ast.current_scope);
+		// ast_match(ast, TK_OPEN_CURLY, #FILE, #LINE);
+		// advance(ast);
         // TODO: need to add the variable_decls into the proc_block scope
-		ast_match(ast, TK_CLOSE_CURLY, #FILE, #LINE);
+        current_token = get_current_token(ast);
+        proc_block_alloc: *Block_Node = 0;
+        if current_token.tt == TK_OPEN_CURLY {
+            advance(ast);
+            proc_block: Block_Node = create_block(ast, false, ast.current_scope);
+            proc_block_alloc = calloc(1, sizeof(Block_Node));
+            memcpy(proc_block_alloc, &proc_block, sizeof(Block_Node));
+            ast_match(ast, TK_CLOSE_CURLY, #FILE, #LINE);
+        } else if current_token.tt == TK_SEMICOLON {
+            // do nothing
+        } else {
+            print_token(current_token);
+            panic("Expected '}' or ';' but got something else", #FILE, #LINE);
+        }
 
-		proc_type: Type_Proc = Type_Proc{ attributes, args, return_type, 0, proc_block, default_vals };
+		proc_type: Type_Proc = Type_Proc{ attributes, args, return_type, 0, proc_block_alloc, default_vals };
 		ret: Type = Type { proc_type };
 		return ret;
 		// todo("handling for Type_Proc", #FILE, #LINE);
@@ -611,6 +664,28 @@ extract_type: proc(ast: *Ast) -> Type {
             array: Type_Array = Type_Array{ size, array_type };
             ret: Type = Type{ array };
             return ret;
+        }
+    } else if current_token.tt == TK_AT {
+        // attributes
+        attributes: [+]Attribute = extract_attributes(ast);
+        tmp: *Token = get_current_token(ast);
+        printf("-------------\n".ptr);
+        print_token(tmp);
+        type_: Type = extract_type(ast);
+        match t := type_ {
+			Type_Builtin => { todo("(Builtin) not implemented attributes for types outside of proc", #FILE, #LINE); },
+			Type_Pointer => { todo("(Pointer) not implemented attributes for types outside of proc", #FILE, #LINE); },
+			Type_Proc => {
+                for i: i32 = 0; i < array_size(attributes); i = i + 1 {
+                    array_append(t.attributes, attributes[i]);
+                }
+			}
+			Type_Array => { todo("(Array) not implemented attributes for types outside of proc", #FILE, #LINE); },
+			Type_Dynamic_Array => { todo("(Dynamic_Array) not implemented attributes for types outside of proc", #FILE, #LINE); },
+            Type_Choice => { todo("(Choice) not implemented attributes for types outside of proc", #FILE, #LINE); },
+            Type_Custom_Decl => { todo("(Custom_Decl) not implemented attributes for types outside of proc", #FILE, #LINE); },
+			Type_Custom => { todo("(Custom) not implemented attributes for types outside of proc", #FILE, #LINE); },
+            Type_Unknown => { todo("(Unknown) not implemented attributes for types outside of proc", #FILE, #LINE); }
         }
     } else {
 		current_token_str: string = current_token.tok;
@@ -948,8 +1023,6 @@ get_op: proc(token: *Token) -> i32 {
         return OP_ACCESS;
     } else if token.tt == TK_NOT {
         return OP_NOT;
-    } else if token.tt == TK_AMPERSAND {
-        return OP_AND;
     } else if token.tt == TK_LEFT_SHIFT {
         return OP_LEFT_SHIFT;
     } else if token.tt == TK_RIGHT_SHIFT {
@@ -975,7 +1048,7 @@ get_prec: proc(ast: *Ast, token: *Token) -> i32 {
     // TODO: other ops
     if token.tt == TK_OPEN_SQUARE || token.tt == TK_DOT {
         return 14;
-    } else if token.tt == TK_DEREF {
+    } else if token.tt == TK_DEREF || token.tt == TK_AMPERSAND {
         return 13;
     } else if token.tt == TK_TILDE {
         return 12;
@@ -989,8 +1062,16 @@ get_prec: proc(ast: *Ast, token: *Token) -> i32 {
         return 8;
     } else if token.tt == TK_LT || token.tt == TK_LTE {
         return 8;
-    } else if token.tt == TK_HAT {
+    } else if token.tt == TK_EQUAL || token.tt == TK_NOT_EQUAL {
         return 7;
+    } else if token.tt == TK_HAT {
+        return 6;
+    } else if token.tt == TK_OR {
+        return 5;
+    } else if token.tt == TK_LOGICAL_AND {
+        return 4;
+    } else if token.tt == TK_LOGICAL_OR {
+        return 3;
     } else if token.tt == TK_ASSIGN     || 
               token.tt == TK_ADD_ASSIGN || 
               token.tt == TK_SUB_ASSIGN 
@@ -1456,6 +1537,18 @@ create_statement: proc(ast: *Ast, scope: u32) -> *Statement {
         for i: i32 = 0; i < array_size(ast.tokens); i = i + 1 {
             print_token(&ast.tokens[i]);
         }
+    } else if current_token.tt == TK_CONTINUE {
+        advance(ast);
+        ast_match(ast, TK_SEMICOLON, #FILE, #LINE);
+        cont: Continue_Node = Continue_Node { 0 };
+        stmt: Statement = Statement { cont };
+        stmt_ret = copy_statement(stmt);
+    } else if current_token.tt == TK_BREAK {
+        advance(ast);
+        ast_match(ast, TK_SEMICOLON, #FILE, #LINE);
+        b: Break_Node = Break_Node { 0 };
+        stmt: Statement = Statement { b };
+        stmt_ret = copy_statement(stmt);
     } else {
         print_token(current_token);
         tmp: string = current_token.tok;
@@ -1651,7 +1744,7 @@ print_decl: proc(decl: *Decl_Node, indentations: i32) {
 
 					print_indentations(indentations + 4);
 					printf("body:\n".ptr);
-					print_block(&var_decl_type.block, indentations + 6);
+					print_block(var_decl_type.block, indentations + 6);
 				}
 				Type_Array => {
 					print_indentations(indentations + 2);

@@ -142,7 +142,7 @@ sa_walk_var_decl: proc(s: *State, _v: *Variable_Decl_Node) {
         Type_Pointer => {},
         Type_Proc => {
             // TODO: I guess need to check default values here?
-            sa_walk_block(s, &t.block);
+            sa_walk_block(s, t.block);
         },
         Type_Array => {},
         Type_Dynamic_Array => {},
