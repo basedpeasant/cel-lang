@@ -642,16 +642,12 @@ impl Codegen for MatchNode {
         print_indentations(&mut g.file, g.indentation_level);
         g.file.write(b"{\n").unwrap();
         assert!(self.blocks.len() == self.fields.len(), "Number of items must match the number of fields in the choice node for this match: {:?}", self.token);
-        
-        // Get the choice type to look up correct index 
-        let choice_type = get_choice_type_from_subject(&g.types, &self.subject.type_)
-            .expect("Subject must be a choice type");
-        
-        for (block_idx, field) in self.fields.iter().enumerate() {
-            // Find the correct tag 
-            let variant_tag = lookup_choice_field_index(&choice_type, field);
+        assert!(self.fields.len() == self.tags.len());
+
+        for (block_idx, _field) in self.fields.iter().enumerate() {
+            let variant_tag = self.tags[block_idx];
             assert!(variant_tag != -1, "Could not find field in choice type definition");
-            
+
             print_indentations(&mut g.file, g.indentation_level);
             g.file.write(format!("case {}: {{\n", variant_tag).as_bytes()).unwrap();
             self.blocks[block_idx].walk(g);

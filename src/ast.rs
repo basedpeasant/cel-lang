@@ -164,11 +164,11 @@ pub enum MatchKind {
 pub struct MatchNode {
     pub match_type: MatchKind,
     pub fields: Vec<(Option<Token>, Type)>,
+    pub tags: Vec<i32>,
     pub subject: VariableDeclNode,
     pub blocks: Vec<BlockNode>,
     pub needs_deref: bool,
-    pub token: Token, // used for debugging purposes
-    // pub var: Token
+    pub token: Token,
 }
 
 #[derive(Clone)]
@@ -1547,6 +1547,8 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                     }
                 }
                 let mut blocks = Vec::<BlockNode>::new();
+                let mut match_fields = Vec::<(Option<Token>, Type)>::new();
+                let mut match_tags = Vec::<i32>::new();
                 loop {
                     let current_token = ast.get_current_token().unwrap();
                     if current_token.tt == TokenType::CloseCurly {
@@ -1607,11 +1609,13 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                             rhs: Box::new(Expression::Variable(VariableNode { symbol: create_token(-1, -1, format!("_{}", index), "generated".to_string()) })),
                             op: Operation::Access
                         })))),
-                        type_: Type::Pointer(Box::new(field_type)),
+                        type_: Type::Pointer(Box::new(field_type.clone())),
                         is_arg: false
                     };
                     field_scope.map.insert(var.tok.clone(), new_var.clone());
                     field_block.statements.insert(0, Statement::Declaration(DeclNode::Var(new_var)));
+                    match_fields.push((Some(field_tok), field_type));
+                    match_tags.push(index);
                     blocks.push(field_block.to_owned());
                     ast.match_token(TokenType::CloseCurly);
                     ast.advance();
@@ -1625,12 +1629,12 @@ fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> Block
                         ExpressionStatementWithBlock::Match(
                             MatchNode {
                                 match_type: MatchKind::Choice,
-                                fields,
+                                fields: match_fields,
+                                tags: match_tags,
                                 subject: subject.clone(),
                                 blocks,
                                 needs_deref,
                                 token: save
-                                // var
                             }
                         )
                 )));
