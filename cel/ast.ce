@@ -13,7 +13,8 @@ TYPE_VOID_PTR:             u8 = 10;
 TYPE_STRING:               u8 = 11;
 TYPE_CUSTOM:               u8 = 12; // TODO probably don't need it, its only for builtin types
 TYPE_CUSTOM_DECLARATION:   u8 = 13; // TODO probably don't need it, its only for builtin types
-TYPE_UNKNOWN:              u8 = 14; // FOR TYPE INFERENCE
+TYPE_VOID:                 u8 = 14;
+TYPE_UNKNOWN:              u8 = 15; // FOR TYPE INFERENCE
 
 ATTRIBUTE_EXTERN: u8 = 1;
 ATTRIBUTE_STATIC: u8 = 2;
@@ -1472,6 +1473,8 @@ create_statement: proc(ast: *Ast, scope: u32) -> *Statement {
             stmt_type: Type = Type { unknown };
             var_decl: Variable_Decl_Node = Variable_Decl_Node{ name, rhs, stmt_type, false };
             decl: Decl_Node = Decl_Node{ var_decl };
+            scope_obj: Scope = ast.scopes[scope];
+            array_append(scope_obj.map, var_decl);
             stmt: Statement = Statement{ decl };
             stmt_ret = copy_statement(stmt);
         } else {

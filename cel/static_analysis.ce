@@ -20,6 +20,33 @@ Error: type struct {
     err: string,
 }
 
+//create_type_builtin: proc(kind: u8) -> *Type {
+//    calloc(1, )
+//}
+
+get_builtin_proc_type: proc(name: string) -> *Type {
+    // TODO: eventually we want to get rid of these (or support them as @extern procs at least) but for now we will
+    // use the C functions for these
+    if strcmp(name, "printf") {
+        ret: *Type = calloc(1, sizeof(Type));
+        t: Type_Builtin = Type_Builtin{ 0, array_new(Attribute) };
+        t.kind = TYPE_VOID; 
+        return ret;
+    } else if strcmp(name, "calloc") {
+        ret: *Type = calloc(1, sizeof(Type));
+        t: Type_Builtin = Type_Builtin{ 0, array_new(Attribute) };
+        t.kind = TYPE_VOID_PTR; 
+        return ret;
+    } else if strcmp(name, "sizeof") {
+        ret: *Type = calloc(1, sizeof(Type));
+        t: Type_Builtin = Type_Builtin{ 0, array_new(Attribute) };
+        t.kind = TYPE_I32;
+        return ret;
+    } else {
+        return 0;
+    }
+}
+
 lookup_proc: proc(scopes: [+]Scope, current_scope: u32, name: string) -> *Variable_Decl_Node {
     scope: Scope = scopes[current_scope];
     for i: i32 = 0; i < array_size(scope.map); i = i + 1 {
@@ -97,6 +124,10 @@ match_expression: proc(s: *State, _expr: *Expression) -> *Type {
             name_tok: *Token = e.name;
             name: string = name_tok.tok;
             var_decl: *Variable_Decl_Node = lookup_proc(ast.scopes, ast.current_scope, name);
+            builtin: *Type = get_builtin_proc_type(name);
+            if builtin != 0 {
+                return builtin;
+            }
             if var_decl == 0 {
                 printf("%s\n".ptr, name.ptr);
                 panic("Could not find proc (lookup_proc)\n", #FILE, #LINE);
