@@ -972,11 +972,15 @@ fn create_proc(ast: &mut Ast, parent_scope: usize, name: Token) -> ProcNode {
     ast.match_token(TokenType::OpenCurly);
     ast.advance(); // {
         // TODO: handle body here
-    let proc_block = create_block(ast, false, Some(parent_scope));
+    let proc_scope = create_new_scope(ast, Some(parent_scope));
+    // Insert the parameters into the proc's block scope BEFORE parsing the body,
+    // so that body statements (e.g. `match x := t1 { ... }`) can resolve them
+    // via lookup_var during parsing.
     for arg in &args {
-        assert!(!ast.scopes[proc_block.scope].map.contains_key(&arg.symbol.tok), "symbol \"{}\" already exists in block", arg.symbol.tok);
-        ast.scopes[proc_block.scope].map.insert(arg.symbol.tok.clone(), arg.clone());
+        assert!(!ast.scopes[proc_scope].map.contains_key(&arg.symbol.tok), "symbol \"{}\" already exists in block", arg.symbol.tok);
+        ast.scopes[proc_scope].map.insert(arg.symbol.tok.clone(), arg.clone());
     }
+    let proc_block = parse_block_body(ast, proc_scope, false);
     ast.match_token(TokenType::CloseCurly);
     // ast.advance(); // }
 
@@ -1352,9 +1356,14 @@ fn lookup_choice_type(types: &Vec<Type>, custom_type_name: &String) -> ChoiceTyp
 }
 
 fn create_block(ast: &mut Ast, root: bool, parent_scope: Option<usize>) -> BlockNode {
+    let scope = create_new_scope(ast, parent_scope);
+    parse_block_body(ast, scope, root)
+}
+
+fn parse_block_body(ast: &mut Ast, scope: usize, root: bool) -> BlockNode {
     let mut block = BlockNode{
         statements: vec!(),
-        scope: create_new_scope(ast, parent_scope),
+        scope,
     };
     let mut defers = Vec::<Statement>::new();
     

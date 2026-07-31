@@ -207,6 +207,19 @@ fn handle_member_access(g: &mut Generator, var_decl: VariableDeclNode, bin: &Bin
                 member_symbol = var.symbol.clone();
                 bin.lhs.walk(g);
             },
+            Expression::Index(index) => {
+                match index.base.as_ref() {
+                    Expression::Variable(var) => {
+                        member_symbol = var.symbol.clone();
+                    }
+                    // terrible error message, TODO: improve later
+                    _ => panic!("Do not support other types for now")
+                }
+                index.base.walk(g);
+                g.file.write(b"[").unwrap();
+                index.index.walk(g);
+                g.file.write(b"]").unwrap();
+            },
             _ => unreachable!("This should not happen")
         }
         // TODO: needs to check if the member is a pointer or not
@@ -233,6 +246,21 @@ fn handle_member_access(g: &mut Generator, var_decl: VariableDeclNode, bin: &Bin
                     panic!("Member \"{}\" is not found in variable \"{}\"", member_symbol.tok, var_decl.symbol.tok);
                 }
             },
+            // NOTE: we probably won't bother finishing tihs because we are trying to
+            // get rid of the rust code anyway
+            Type::U8(_) =>  todo!("U8"),
+            Type::U16(_) => todo!("U16"),
+            Type::U32(_) => todo!("U32"),
+            Type::U64(_) => todo!("U64"),
+            Type::I8(_) =>  todo!("I8"),
+            Type::I16(_) => todo!("I16"),
+            Type::I32(_) => todo!("I32"),
+            Type::I64(_) => todo!("I64"),
+            Type::String(_) => todo!("String"),
+            Type::Array(_) => todo!("Array"),
+            Type::Choice(_, _) => todo!("Choice"),
+            Type::Slice(_) => todo!("Slice"),
+            Type::Pointer(_) => todo!("Pointer"),
             _ => todo!()
         };
     }

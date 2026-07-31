@@ -131,7 +131,7 @@ Scope: type struct {
 }
 
 Number_Node: type struct {
-	val: i64
+	val: u64
 }
 
 OP_ADD: i32 = 10;
@@ -160,6 +160,7 @@ OP_BITWISE_NOT: i32 = 32;
 OP_ADD_ASSIGN: i32 = 33;
 OP_SUB_ASSIGN: i32 = 34;
 OP_DEREF: i32 = 35;
+OP_MOD: i32 = 36;
 
 Unary_Node: type struct {
     op: i32,
@@ -280,6 +281,7 @@ Ast: type struct {
     procs: [+]Proc_Header_Node
 }
 
+// TODO: marked for removal (not used rn)
 find_name_in_scope: proc(ast: *Ast, scope_id: i32, name: string) -> *Variable_Decl_Node {
 	size: i32 = array_size(ast.scopes);
 	if scope_id < 0 || scope_id >= size {
@@ -363,6 +365,8 @@ get_type_string: proc(type__: Type) -> string {
                return "string";
            } else if kind == TYPE_BOOL {
                return "bool";
+           } else if kind == TYPE_VOID_PTR {
+               return "void*";
            } else {
                printf("\n%d\n".ptr, kind);
                todo("implement get_type_string for Type_Builtin", #FILE, #LINE);
@@ -688,6 +692,7 @@ extract_type: proc(ast: *Ast) -> Type {
 			Type_Custom => { todo("(Custom) not implemented attributes for types outside of proc", #FILE, #LINE); },
             Type_Unknown => { todo("(Unknown) not implemented attributes for types outside of proc", #FILE, #LINE); }
         }
+        return type_;
     } else {
 		current_token_str: string = current_token.tok;
 		printf("%s\n".ptr, current_token_str.ptr);
@@ -788,10 +793,47 @@ strtoi: proc(str: string) -> i64 {
     }
 }
 
+validate_char: proc(t: *Token) -> u64 {
+    char_str: string = t.tok;
+    // TODO: need to specify where
+    // TODO: make this error better
+    assert(char_str.length <= 2, "Invalid character length", #FILE, #LINE);
+    if char_str.length == 2 {
+        if char_str.ptr[0] == '\\' {
+            c1: u8 = char_str.ptr[1];
+            if c1 == '0' {
+                return 0;
+            } else if c1 == 't' {
+                return 9;
+            } else if c1 == 'n' {
+                return 10;
+            } else if c1 == '\\' {
+                return 92;
+            } else if c1 == '\'' {
+                return 39;
+            } else {
+                printf("Unrecognized escape: '\\%c'\n".ptr, c1);
+                todo("Unrecognized escape sequence", #FILE, #LINE);
+            }
+        } else {
+            printf("Unrecognized character: '%s'\n".ptr, char_str.ptr);
+            todo("Unrecognized escape sequence", #FILE, #LINE);
+        }
+    } else {
+        return char_str.ptr[0];
+    }
+}
+
 parse_primary: proc(ast: *Ast, scope: u32, in_if: bool) -> Expression {
     current_token: *Token = get_current_token(ast); 
     if current_token.tt == TK_NUMBER {
         num: Number_Node = Number_Node{ strtoi(current_token.tok) };
+        ret: Expression = Expression{ num };
+        advance(ast);
+        return ret;
+    } else if current_token.tt == TK_SINGLE_QUOTE {
+        val: u64 = validate_char(current_token);
+        num: Number_Node = Number_Node{ val };
         ret: Expression = Expression{ num };
         advance(ast);
         return ret;
@@ -979,6 +1021,8 @@ get_op_string: proc(op: i32) -> string {
         return "-=";
     } else if op == OP_DEREF {
         return ".*";
+    } else if op == OP_MOD {
+        return "%";
     } else {
         todo("print for get_op_string", #FILE, #LINE);
     }
@@ -1038,6 +1082,8 @@ get_op: proc(token: *Token) -> i32 {
         return OP_SUB_ASSIGN;
     } else if token.tt == TK_DEREF {
         return OP_DEREF;
+    } else if token.tt == TK_PERCENT {
+        return OP_MOD;
     } else {
         str: string = token.tok;
         printf("%s\n".ptr, str.ptr);
@@ -1053,7 +1099,7 @@ get_prec: proc(ast: *Ast, token: *Token) -> i32 {
         return 13;
     } else if token.tt == TK_TILDE {
         return 12;
-    } else if token.tt == TK_STAR || token.tt == TK_SLASH {
+    } else if token.tt == TK_STAR || token.tt == TK_SLASH || token.tt == TK_PERCENT {
         return 11;
     } else if token.tt == TK_PLUS || token.tt == TK_SUB {
         return 10;
@@ -1443,8 +1489,8 @@ create_statement: proc(ast: *Ast, scope: u32) -> *Statement {
                 decl: Decl_Node = Decl_Node{ var_decl };
                 stmt: Statement = Statement{ decl };
                 stmt_ret = copy_statement(stmt);
-                scope_obj: Scope = ast.scopes[scope];
-                array_append(scope_obj.map, var_decl);
+                s: *Scope = &ast.scopes[scope];
+                array_append(s.map, var_decl);
             }
         } else if peek.tt == TK_OPEN_PAREN {
             assert(!root, "Expressions are not allowed in the top level scope", #FILE, #LINE);
@@ -1473,8 +1519,8 @@ create_statement: proc(ast: *Ast, scope: u32) -> *Statement {
             stmt_type: Type = Type { unknown };
             var_decl: Variable_Decl_Node = Variable_Decl_Node{ name, rhs, stmt_type, false };
             decl: Decl_Node = Decl_Node{ var_decl };
-            scope_obj: Scope = ast.scopes[scope];
-            array_append(scope_obj.map, var_decl);
+            s: *Scope = &ast.scopes[scope];
+            array_append(s.map, var_decl);
             stmt: Statement = Statement{ decl };
             stmt_ret = copy_statement(stmt);
         } else {
@@ -1747,7 +1793,11 @@ print_decl: proc(decl: *Decl_Node, indentations: i32) {
 
 					print_indentations(indentations + 4);
 					printf("body:\n".ptr);
-					print_block(var_decl_type.block, indentations + 6);
+                    if var_decl_type.block != 0 {
+                        print_block(var_decl_type.block, indentations + 6);
+                    } else {
+                        printf("(Null)\n".ptr);
+                    }
 				}
 				Type_Array => {
 					print_indentations(indentations + 2);
@@ -1963,6 +2013,59 @@ add_buildtin_procs: proc(a: *Ast) {
     //     default_val: Expression = ast_create_expr(ast, ast.current_scope, false);
     //     array_append(default_vals, default_val);
     // }
+}
+
+resolve_include_path: proc(base_file: string, include_path: string) -> string {
+    cut: i32 = 0;
+    for i: i32 = 0; i < base_file.length; i = i + 1 {
+        if base_file.ptr[i] == '/' {
+            cut = i;
+        }
+    }
+    if cut == 0 {
+        return include_path;
+    }
+    sb: String_Builder;
+    for i: i32 = 0; i < cut + 1; i = i + 1 {
+        sb_push(&sb, base_file.ptr[i]);
+    }
+    for i: i32 = 0; i < include_path.length; i = i + 1 {
+        sb_push(&sb, include_path.ptr[i]);
+    }
+    return sb_to_string(&sb);
+}
+
+expand_includes: proc(tokens: [+]Token, base_filename: string) -> [+]Token {
+    result: [+]Token = array_new(Token);
+    len: i32 = array_size(tokens);
+    i: i32 = 0;
+    for i < len {
+        tok: Token = tokens[i];
+        if tok.tt != TK_INCLUDE {
+            array_append(result, tok);
+            i = i + 1;
+        } else {
+            assert(i + 2 < len, "malformed include directive", #FILE, #LINE);
+            filepath_tok: Token = tokens[i + 1];
+            filepath_str: string = filepath_tok.tok;
+            semicolon_tok: Token = tokens[i + 2];
+            assert(semicolon_tok.tt == TK_SEMICOLON, "expected ';' after include", #FILE, #LINE);
+
+            full_path: string = resolve_include_path(base_filename, filepath_str);
+            src: string = read_file_to_string(full_path);
+            child_tokens: [+]Token = tokenize(&src, filepath_str);
+            expanded: [+]Token = expand_includes(child_tokens, full_path);
+
+            for j: i32 = 0; j < array_size(expanded); j = j + 1 {
+                array_append(result, expanded[j]);
+            }
+
+            array_free(child_tokens);
+            array_free(expanded);
+            i = i + 3;
+        }
+    }
+    return result;
 }
 
 ast_start: proc(tokens: [+]Token) -> Ast {

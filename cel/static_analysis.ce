@@ -20,61 +20,73 @@ Error: type struct {
     err: string,
 }
 
-//create_type_builtin: proc(kind: u8) -> *Type {
-//    calloc(1, )
-//}
+create_type_builtin: proc(kind: u8) -> *Type {
+    ret: *Type = calloc(1, sizeof(Type));
+    t: Type_Builtin = Type_Builtin{ 0, array_new(Attribute) };
+    t.kind = kind; 
+    // TODO/NOTE: this is reliant on the order of the choice type
+    // which is a hack, once we introduce the syntax for this
+    ret._0 = t;
+    return ret;
+}
+
+create_type_pointer: proc(inner: *Type) -> *Type {
+    ret: *Type = calloc(1, sizeof(Type));
+    t: Type_Pointer = Type_Pointer{ inner };
+    // NOTE: reliant on the order of the choice type (Type_Pointer is _1 / tag 1)
+    ret._1 = t;
+    ret._tag = 1;
+    return ret;
+}
 
 get_builtin_proc_type: proc(name: string) -> *Type {
     // TODO: eventually we want to get rid of these (or support them as @extern procs at least) but for now we will
     // use the C functions for these
     if strcmp(name, "printf") {
-        ret: *Type = calloc(1, sizeof(Type));
-        t: Type_Builtin = Type_Builtin{ 0, array_new(Attribute) };
-        t.kind = TYPE_VOID; 
-        return ret;
+        return create_type_builtin(TYPE_VOID);
     } else if strcmp(name, "calloc") {
-        ret: *Type = calloc(1, sizeof(Type));
-        t: Type_Builtin = Type_Builtin{ 0, array_new(Attribute) };
-        t.kind = TYPE_VOID_PTR; 
-        return ret;
+        return create_type_builtin(TYPE_I64);
     } else if strcmp(name, "sizeof") {
-        ret: *Type = calloc(1, sizeof(Type));
-        t: Type_Builtin = Type_Builtin{ 0, array_new(Attribute) };
-        t.kind = TYPE_I32;
-        return ret;
+        return create_type_builtin(TYPE_I32);
     } else {
         return 0;
     }
 }
 
-lookup_proc: proc(scopes: [+]Scope, current_scope: u32, name: string) -> *Variable_Decl_Node {
+lookup_name: proc(scopes: [+]Scope, current_scope: u32, name: string) -> *Variable_Decl_Node {
     scope: Scope = scopes[current_scope];
     for i: i32 = 0; i < array_size(scope.map); i = i + 1 {
         var_decl: *Variable_Decl_Node = &scope.map[i];
         var_type: Type = var_decl.var_type;
         // we only care about procs here
-        match t := var_type {
-            Type_Builtin => {},
-            Type_Pointer => {},
-            Type_Proc => {
-                name_tmp: *Token = t.name;
-                name_t: string = name_tmp.tok;
-                if strcmp(name, name_t) {
-                    return var_decl;
-                }
-            },
-            Type_Array => {},
-            Type_Dynamic_Array => {},
-            Type_Choice => {},
-            Type_Custom_Decl => {},
-            Type_Custom => {},
-            Type_Unknown => {}
+        // match t := var_type {
+        //     Type_Builtin => {},
+        //     Type_Pointer => {},
+        //     Type_Proc => {
+        //         name_tmp: *Token = t.name;
+        //         name_t: string = name_tmp.tok;
+        //         if strcmp(name, name_t) {
+        //             return var_decl;
+        //         }
+        //     },
+        //     Type_Array => {},
+        //     Type_Dynamic_Array => {},
+        //     Type_Choice => {},
+        //     Type_Custom_Decl => {},
+        //     Type_Custom => {},
+        //     Type_Unknown => {}
+        // }
+        // check variables
+        name_tmp: *Token = var_decl.symbol;
+        name_t: string = name_tmp.tok;
+        if strcmp(name, name_t) {
+            return var_decl;
         }
     }
     if current_scope == 0 {
         return 0;
     } else {
-        lookup_proc(scopes, scope.parent_scope, name);
+        lookup_name(scopes, scope.parent_scope, name);
     }
 }
 
@@ -104,33 +116,114 @@ get_proc_return_type: proc(p: *Variable_Decl_Node) -> *Type {
     }
 }
 
+check_types: proc(t1: *Type, t2: *Type) -> bool {
+    // sentinel value lol
+    kind1: u8 = 69;
+    builtin_kind1: u8 = 0;
+    inner1: *Type = 0;
+    return_type1: *Type = 0;
+    array_type1: *Type = 0;
+    name1: *Token = 0;
+    match t1_ := t1 {
+        Type_Builtin => { kind1 = 1; builtin_kind1 = t1_.kind; }
+        Type_Pointer => { kind1 = 2; inner1 = t1_.inner; }
+        Type_Proc => { kind1 = 3; return_type1 = t1_.return_type; }
+        Type_Array => { kind1 = 4; array_type1 = t1_.array_type; }
+        Type_Dynamic_Array => { kind1 = 5; array_type1 = t1_.array_type; }
+        Type_Choice => { kind1 = 6; }
+        Type_Custom_Decl => { kind1 = 7; name1 = t1_.name; }
+        Type_Custom => { kind1 = 8; name1 = t1_.name; }
+        Type_Unknown => { kind1 = 9; }
+    }
+
+    // sentinel value lol
+    kind2: u8 = 69;
+    builtin_kind2: u8 = 0;
+    inner2: *Type = 0;
+    return_type2: *Type = 0;
+    array_type2: *Type = 0;
+    name2: *Token = 0;
+    match t2_ := t2 {
+        Type_Builtin => { kind2 = 1; builtin_kind2 = t2_.kind; }
+        Type_Pointer => { kind2 = 2; inner2 = t2_.inner; }
+        Type_Proc => { kind2 = 3; return_type2 = t2_.return_type; }
+        Type_Array => { kind2 = 4; array_type2 = t2_.array_type; }
+        Type_Dynamic_Array => { kind2 = 5; array_type2 = t2_.array_type; }
+        Type_Choice => { kind2 = 6; }
+        Type_Custom_Decl => { kind2 = 7; name2 = t2_.name; }
+        Type_Custom => { kind2 = 8; name2 = t2_.name; }
+        Type_Unknown => { kind2 = 9; }
+    }
+
+    if kind1 != kind2 {
+        return false;
+    }
+
+    if kind1 == 1 {
+        return builtin_kind1 == builtin_kind2;
+    } else if kind1 == 2 {
+        return check_types(inner1, inner2);
+    } else if kind1 == 3 {
+        if return_type1 == 0 && return_type2 == 0 {
+            return true;
+        }
+        if return_type1 == 0 || return_type2 == 0 {
+            return false;
+        }
+        return check_types(return_type1, return_type2);
+    } else if kind1 == 4 {
+        return check_types(array_type1, array_type2);
+    } else if kind1 == 5 {
+        return check_types(array_type1, array_type2);
+    } else if kind1 == 6 {
+        return true;
+    } else if kind1 == 7 {
+        return strcmp(name1.tok, name2.tok);
+    } else if kind1 == 8 {
+        return strcmp(name1.tok, name2.tok);
+    } else if kind1 == 9 {
+        panic("Type_Unknown should not be in check_types", #FILE, #LINE);
+    }
+
+    assert(kind1 != 69 || kind2 != 69, "unhandled type in check_types", #FILE, #LINE);
+    return false;
+}
+
 match_expression: proc(s: *State, _expr: *Expression) -> *Type {
     // TODO/NOTE: Have to do this because of bug
     expr: *Expression = _expr;
     ast: *Ast = s.ast;
     match e := expr {
         Binary_Node => { 
-            todo("", #FILE, #LINE);
+            // TODO: implement this please
+            // todo("", #FILE, #LINE);
+            // lhs_type: *Type = match_expression(s, e.lhs);
+            // rhs_type: *Type = match_expression(s, e.rhs);
+            // res: bool = check_types(lhs_type, rhs_type);
         },
         Number_Node => { 
             // todo("", #FILE, #LINE);
+            return create_type_builtin(TYPE_I64);
         },
         Variable_Node => { 
             // lookup var_decl to check the type
-            todo("", #FILE, #LINE);
+            name_tok: *Token = e.symbol;
+            name: string = name_tok.tok;
+            var_decl: *Variable_Decl_Node = lookup_name(ast.scopes, ast.current_scope, name);
+            return &var_decl.var_type;
         },
         Call_Node => { 
             // lookup proc var_decl to check the return type
             name_tok: *Token = e.name;
             name: string = name_tok.tok;
-            var_decl: *Variable_Decl_Node = lookup_proc(ast.scopes, ast.current_scope, name);
+            var_decl: *Variable_Decl_Node = lookup_name(ast.scopes, ast.current_scope, name);
             builtin: *Type = get_builtin_proc_type(name);
             if builtin != 0 {
                 return builtin;
             }
             if var_decl == 0 {
                 printf("%s\n".ptr, name.ptr);
-                panic("Could not find proc (lookup_proc)\n", #FILE, #LINE);
+                panic("Could not find proc (lookup_name)\n", #FILE, #LINE);
             }
             ret_type: *Type = get_proc_return_type(var_decl);
             if ret_type != 0 {
@@ -147,10 +240,14 @@ match_expression: proc(s: *State, _expr: *Expression) -> *Type {
             return ret_type;
         },
         String_Literal => { 
-            // todo("", #FILE, #LINE);
+            return create_type_builtin(TYPE_STRING);
         },
         Unary_Node => { 
-            todo("", #FILE, #LINE);
+            if e.op == OP_REFERENCE {
+                inner_type: *Type = match_expression(s, e.base);
+                return create_type_pointer(inner_type);
+            }
+            return match_expression(s, e.base);
         },
         Struct_Init_Node => { 
             todo("", #FILE, #LINE);
@@ -161,19 +258,18 @@ match_expression: proc(s: *State, _expr: *Expression) -> *Type {
     } 
 }
 
-sa_walk_var_decl: proc(s: *State, _v: *Variable_Decl_Node) {
-    // TODO/NOTE: Have to do this because of bug
-    v: *Variable_Decl_Node = _v; 
-
+sa_walk_var_decl: proc(s: *State, v: *Variable_Decl_Node) {
     // TODO: need to check every type to see if the rhs matches the 
     //       declared type
-    var_type: Type = v.var_type;
+    var_type: *Type = &v.var_type;
     match t := var_type {
         Type_Builtin => {},
         Type_Pointer => {},
         Type_Proc => {
             // TODO: I guess need to check default values here?
-            sa_walk_block(s, t.block);
+            if t.block != 0 {
+                sa_walk_block(s, t.block);
+            }
         },
         Type_Array => {},
         Type_Dynamic_Array => {},
@@ -181,7 +277,9 @@ sa_walk_var_decl: proc(s: *State, _v: *Variable_Decl_Node) {
         Type_Custom_Decl => {},
         Type_Custom => {},
         Type_Unknown => {
-            match_expression(s, v.rhs);
+            resolved_type: *Type = match_expression(s, v.rhs);
+            t.resolved = true;
+            t.type_ = resolved_type;
         }
     }
 }
@@ -201,7 +299,7 @@ sa_walk_block: proc(s: *State, block: *Block_Node) {
     ast: *Ast = s.ast;
     ast.current_scope = block.scope; 
     for i: i32 = 0; i < array_size(block.statements); i = i + 1 {
-        statement: Statement = block.statements[i];
+        statement: *Statement = &block.statements[i];
         match st := statement {
             Expression_Statement => {
                 stmt: *Expression_Statement = st;
@@ -210,7 +308,7 @@ sa_walk_block: proc(s: *State, block: *Block_Node) {
                         match_expression(s, es);
                     },
                     Expression_Statement_With_Block => {
-                        todo("", #FILE, #LINE);
+                        //todo("", #FILE, #LINE);
                     }
                 }
             },

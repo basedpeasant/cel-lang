@@ -296,7 +296,8 @@ get_c_type: proc(type__: Type) -> string {
             todo("get_c_type (Type_Custom)", #FILE, #LINE);
         }
         Type_Unknown => {
-            todo("get_c_type (Type_Unknown)", #FILE, #LINE);
+            assert(t.resolved, "an unresolved Type_Unknown reached get_c_type", #FILE, #LINE);
+            return get_c_type(t.type_[0]);
         }
     } 
 }
@@ -325,8 +326,12 @@ walk_proc: proc(g: *Generator, proc_: *Type_Proc) {
         }
         sb_push_str(g.output, ")\n");
     }
-    walk_block(g, proc_.block);
-
+    if proc_.block != 0 {
+        walk_block(g, proc_.block);
+    } else {
+        // this should be a forward declaration
+        sb_push_str(g.output, ";");
+    }
 }
 
 // converts int to an allocated string 
@@ -414,6 +419,8 @@ walk_expression: proc(g: *Generator, expr_: *Expression) {
                 sb_push_str(g.output, " += ");
             } else if e.op == OP_SUB_ASSIGN {
                 sb_push_str(g.output, " -= ");
+            } else if e.op == OP_MOD {
+                sb_push_str(g.output, " % ");
             } else {
                 panic("Operator codegen not implemented yet", #FILE, #LINE);
             }
@@ -548,7 +555,10 @@ walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
             is_type_custom = true;
         },
         Type_Unknown => {
-            assert(false, "Type_Unknown should not appear in codegen", #FILE, #LINE);
+            assert(t.resolved, "an unresolved type of `Type_Unknown` has appeared in codegen", #FILE, #LINE);
+            c_type_str: string = get_c_type(t.type_[0]);
+            sb_push_str(g.output, c_type_str);
+            sb_push(g.output, ' ');
         }
     }
     if !skip {
