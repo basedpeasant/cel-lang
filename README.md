@@ -7,12 +7,12 @@ cel         ->  out.c  ->  cc  ->  native binary
 (compiler)      (C99)             (your program)
 ```
 
-Right now, the compiler is partially self-hosted but this is expected to be completed soon as only a couple of features are left for the compiler to be able to fully compile itself.
+Right now, the compiler is partially self-hosted but this is expected to be completed soon as only a couple of features are left for the compiler to be able to fully compile itself. Once that happens the rust version of the compiler will be deprecated and may even be removed fom the codebase since it will no longer be needed, all work will continue in Cel.
 
 ## Features 
 
-- **Self-hosting.** The cel compiler is written in cel. A Rust reference compiler (`src/`) compiles `cel/main.ce` into C, which `cc` turns into a binary. That binary can recompile `cel/main.ce` with no Rust involved. Classic bootstrap problem.
-- **Zero dependencies.** No parser generators, no LLVM bindings, no third-party crates. Just the Rust standard library and `cc`. The generated C code targets C99 with `-fno-builtin`.
+- **Self-hosting.** The cel compiler is written in cel. A Rust reference compiler (`src/`) compiles `cel/main.ce` into C, which `cc` turns into a binary. That binary can recompile `cel/main.ce` with no Rust involved.
+- **Minimal dependencies.** The compiler was built purely using the Rust standard library and `cc`, the generated C code targets C99 with `-fno-builtin`.
 - **Full pipeline.** Hand-written lexer, recursive-descent parser with precedence climbing, static analysis / type inference, and C code generation — all built from scratch.
 - **Real type system.** Primitives, pointers, fixed/dynamic arrays, structs, and **choice types** (tagged unions with exhaustive `match`). Short variable declarations with type inference (`x := expr`).
 - **Codegen to C.** Compiles to C99 instead of targeting assembly or an IR.
@@ -94,10 +94,10 @@ exit:   @extern proc(code: i32);
 calloc: @extern proc(n: u64, size: u64) -> void_ptr;
 ```
 
-## project layout
+## Project layout
 
 ```
-src/       Rust reference compiler (lexer → parser → codegen)
+src/       Rust reference compiler (lexer -> parser -> codegen)
 cel/       cel compiler written in cel (self-hosting target)
 samples/   example cel programs (fib, arrays, structs)
 ```
