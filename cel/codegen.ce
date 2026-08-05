@@ -33,7 +33,16 @@ generate_types: proc(g: *Generator) {
                 unreachable("unexpected type in code generation, only custom types and choice types should be here", #FILE, #LINE);
             },
             Type_Choice => {
-                todo("Not yet implemented choice yet", #FILE, #LINE);
+                if array_size(t.attributes) > 0 {
+                    todo("Need to think more about how attributes work for choice types", #FILE, #LINE);
+                }
+                sb_push_str(g.output, "typedef struct ");
+                struct_name: *Token = t.name;
+                struct_name_str: string = struct_name.tok;
+                sb_push_str(g.output, struct_name_str);
+                sb_push(g.output, ' ');
+                sb_push_str(g.output, struct_name_str);
+                sb_push_str(g.output, ";\n");
             },
             Type_Custom_Decl => {
                 // TODO: attributes
@@ -76,7 +85,31 @@ generate_types: proc(g: *Generator) {
                 unreachable("unexpected type in code generation, only custom types and choice types should be here", #FILE, #LINE);
             },
             Type_Choice => {
-                todo("Not yet implemented choice yet", #FILE, #LINE);
+                if array_size(t.attributes) > 0 {
+                    todo("Need to think more about how attributes work for structs", #FILE, #LINE);
+                }
+                sb_push_str(g.output, "struct ");
+                choice_name: *Token = t.name;
+                choice_name_str: string = choice_name.tok;
+                sb_push_str(g.output, choice_name_str);
+                sb_push_str(g.output, " {\n");
+                g.indentation_level = g.indentation_level + 1;
+                sb_push_str(g.output, "union {\n");
+                g.indentation_level = g.indentation_level + 1;
+                for i: i32 = 0; i < array_size(t.fields); i = i + 1 {
+                    output_indentations(g);
+                    field: Field = t.fields[i];
+                    c_type: string = get_c_type(field.type_name);
+                    field_name: *Token = field.name;
+                    sb_push_str(g.output, c_type);
+                    sb_push(g.output, ' ');
+                    sb_push_str(g.output, field_name.tok);
+                    sb_push_str(g.output, ";\n");
+                }
+                g.indentation_level = g.indentation_level - 1;
+                sb_push_str(g.output, "};\n");
+                g.indentation_level = g.indentation_level - 1;
+                sb_push_str(g.output, "};\n");
             },
             Type_Custom_Decl => {
                 // TODO: attributes
@@ -293,7 +326,9 @@ get_c_type: proc(type__: Type) -> string {
             todo("get_c_type (Type_Custom_Decl)", #FILE, #LINE);
         }
         Type_Custom => {
-            todo("get_c_type (Type_Custom)", #FILE, #LINE);
+            name: *Token = t.name;
+            name_str: string = name.tok;
+            return name_str;
         }
         Type_Unknown => {
             assert(t.resolved, "an unresolved Type_Unknown reached get_c_type", #FILE, #LINE);
@@ -324,7 +359,11 @@ walk_proc: proc(g: *Generator, proc_: *Type_Proc) {
                 sb_push_str(g.output, ", ");
             }
         }
-        sb_push_str(g.output, ")\n");
+        if proc_.block != 0 {
+            sb_push_str(g.output, ")\n");
+        } else {
+            sb_push_str(g.output, ")");
+        }
     }
     if proc_.block != 0 {
         walk_block(g, proc_.block);
