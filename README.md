@@ -15,7 +15,7 @@ Right now, the compiler is partially self-hosted but this is expected to be comp
 - **Minimal dependencies.** The compiler was built purely using the Rust standard library and `cc`, the generated C code targets C99 with `-fno-builtin`.
 - **Full pipeline.** Hand-written lexer, recursive-descent parser with precedence climbing, static analysis / type inference, and C code generation — all built from scratch.
 - **Real type system.** Primitives, pointers, fixed/dynamic arrays, structs, and **choice types** (tagged unions with exhaustive `match`). Short variable declarations with type inference (`x := expr`).
-- **Codegen to C.** Compiles to C99 instead of targeting assembly or an IR.
+- **Codegen to C.** Compiles to C99 instead of targeting assembly or an IR. Aiming to support seamless interop with C!
 
 ## Examples
 
@@ -125,7 +125,7 @@ The cel compiler is **partially self-hosting** — it can parse and compile many
 | pointers (`*T`, `&`, `.*`) | done |
 | fixed arrays (`[N]T`), dynamic arrays (`[+]T`) | done |
 | structs | done |
-| choice types (tagged unions) | Rust done, cel wip |
+| choice types (tagged unions) | done |
 | exhaustive `match` | Rust done, cel wip |
 | `if`/`else`, `for`, `defer` | done |
 | type inference (`x := expr`) | done |
