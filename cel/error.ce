@@ -1,1 +1,157 @@
 
+isatty: @extern proc(fd: i32) -> i32;
+getenv: @extern proc(name: *u8) -> *u8;
+
+// Set in main.ce right after read_file_to_string so that
+// report_error_at can just refer to the problem line instead of
+// re-reading the file from disk on every error.
+// TODO: this is obviously a very silly way of doing it
+current_src: string;
+
+color_enabled: proc() -> bool {
+    tty: i32 = isatty(1);
+    if tty == 0 {
+        return false;
+    }
+    env: *u8 = getenv("NO_COLOR".ptr);
+    if env != 0 {
+        return false;
+    }
+    return true;
+}
+
+sb_push_range: proc(sb: *String_Builder, src: string, from: i32, to: i32) {
+    for i: i32 = from; i < to; i = i + 1 {
+        if i >= src.length {
+            break;
+        }
+        sb_push(sb, src.ptr[i]);
+    }
+}
+
+// Find the byte range [start, end) of the line (index is 1-based btw).
+// Returns an empty string if the line does not exist.
+get_line: proc(line_number: i32) -> string {
+    src: string = current_src;
+    current: i32 = 1;
+    start: i32 = 0;
+    src_len: i32 = src.length;
+    for i: i32 = 0; i < src_len; i = i + 1 {
+        c: u8 = src.ptr[i];
+        if c == '\n' {
+            if current == line_number {
+                end: i32 = i;
+                // strip a trailing '\r'
+                if end > start && src.ptr[end - 1] == '\r' {
+                    end = end - 1;
+                }
+                ret: string = string{ end - start, src.ptr + start };
+                return ret;
+            }
+            current = current + 1;
+            start = i + 1;
+        }
+    }
+    // last line may not end with a newline
+    if current == line_number && src_len > start {
+        end: i32 = src_len;
+        if end > start && src.ptr[end - 1] == '\r' {
+            end = end - 1;
+        }
+        ret: string = string{ end - start, src.ptr + start };
+        return ret;
+    }
+    ret: string = string{ 0, 0 };
+    return ret;
+}
+
+// Report an error at an explicit location. `col` and `length` are the
+// 0-based byte offset and width of the problem token in the line. Prints the
+// location header plus the line with the offending span highlighted
+// in red. Does not exit.
+report_error_at: proc(file: string, line_no: i32, col: i32, length: i32, msg: string) {
+    on: bool = color_enabled(0);
+
+    start: i32 = col;
+    if start < 0 {
+        start = 0;
+    }
+    end: i32 = col + length;
+
+    sb: String_Builder;
+
+    // header: "\n<file>:<line>,<col>:\n"
+    sb_push(&sb, '\n');
+    sb_push_str(&sb, file);
+    sb_push(&sb, ':');
+    sb_push_int(&sb, line_no);
+    sb_push(&sb, ',');
+    sb_push_int(&sb, col + 1);
+    sb_push(&sb, ':');
+    sb_push(&sb, '\n');
+
+    // "Error: <msg>" in bold red
+    if on {
+        sb_push(&sb, 27);
+        sb_push_str(&sb, "[01;31m");
+    }
+    sb_push_str(&sb, "Error: ");
+    sb_push_str(&sb, msg);
+    if on {
+        sb_push(&sb, 27);
+        sb_push_str(&sb, "[0m");
+    }
+    sb_push(&sb, '\n');
+
+    // the problem line with the span highlighted in red
+    line_str: string = get_line(line_no);
+    line_len: i32 = line_str.length;
+    if line_len == 0 {
+        out: string = sb_to_string(&sb);
+        printf("%s".ptr, out.ptr);
+        sb_free(&sb);
+        return;
+    }
+
+    if end > line_len {
+        end = line_len;
+    }
+    if start > line_len {
+        start = line_len;
+    }
+    if start > end {
+        end = start;
+    }
+
+    sb_push_str(&sb, "    ");
+    sb_push_range(&sb, line_str, 0, start);
+    if on {
+        sb_push(&sb, 27);
+        sb_push_str(&sb, "[31m");
+    }
+    sb_push_range(&sb, line_str, start, end);
+    if on {
+        sb_push(&sb, 27);
+        sb_push_str(&sb, "[0m");
+    }
+    sb_push_range(&sb, line_str, end, line_len);
+    sb_push(&sb, '\n');
+
+    out: string = sb_to_string(&sb);
+    printf("%s".ptr, out.ptr);
+    sb_free(&sb);
+}
+
+// Report an error for a given token with the token's filename, line, column and
+// width. Does not exit.
+report_error: proc(token: *Token, msg: string) {
+    token_str: string = token.tok;
+    report_error_at(token.filename, token.y, token.x, token_str.length, msg);
+}
+
+// Report a fatal error for a token and stop compilation
+compile_error: proc(token: *Token, msg: string) {
+    token_str: string = token.tok;
+    report_error_at(token.filename, token.y, token.x, token_str.length, msg);
+    exit(1);
+}

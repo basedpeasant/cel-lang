@@ -401,20 +401,22 @@ is_delim: proc(c: u8) -> bool {
 tokenize: proc(src: *string, filename: string) -> [+]Token {
 	x: i32 = 0;
 	y: i32 = 1;
+	token_start_x: i32 = 0;
 	current_string: String_Builder;
 	ret: [+]Token;
-	
+
 	for i: i32 = 0; i < src.length; i = i + 1 {
 		c: u8 = src.ptr[i];
 		p: u8 = 0;
 		if i + 1 >= src.length {
 			if current_string.length > 0 {
-				token: Token = create_token(x, y, sb_to_string(&current_string), filename);
+				token: Token = create_token(token_start_x, y, sb_to_string(&current_string), filename);
 				array_append(ret, token);
 				sb_clear(&current_string);
 			}
 			if is_delim(c) {
-				token: Token = create_token(x, y, sb_to_string(&current_string), filename);
+				token_start_x = x;
+				token: Token = create_token(token_start_x, y, sb_to_string(&current_string), filename);
 				array_append(ret, token);
 			}
 			break;
@@ -423,20 +425,24 @@ tokenize: proc(src: *string, filename: string) -> [+]Token {
 		}
 
 		if c == '\n' {
-			x = 0;
-			y = y + 1;
-		}
-
-		if is_whitespace(c) {
-			// save token
 			if current_string.length > 0 {
-				token: Token = create_token(x, y, sb_to_string(&current_string), filename);
+				token: Token = create_token(token_start_x, y, sb_to_string(&current_string), filename);
 				array_append(ret, token);
 				sb_clear(&current_string);
 			}
+			x = 0;
+			y = y + 1;
+		} else if is_whitespace(c) {
+			// save token
+			if current_string.length > 0 {
+				token: Token = create_token(token_start_x, y, sb_to_string(&current_string), filename);
+				array_append(ret, token);
+				sb_clear(&current_string);
+			}
+			x = x + 1;
 		} else if c == '#' {
 			if current_string.length > 0 {
-				token: Token = create_token(x, y, sb_to_string(&current_string), filename);
+				token: Token = create_token(token_start_x, y, sb_to_string(&current_string), filename);
 				array_append(ret, token);
 				sb_clear(&current_string);
 			}
@@ -444,6 +450,7 @@ tokenize: proc(src: *string, filename: string) -> [+]Token {
 			i = i + 1;
 			c = src.ptr[i];
 			x = x + 1;
+			token_start_x = x;
 			p = src.ptr[i + 1];
 			for !is_delim(p) && !is_whitespace(p) {
 				sb_push(&current_string, c);
@@ -458,7 +465,7 @@ tokenize: proc(src: *string, filename: string) -> [+]Token {
 			sb_push(&current_string, c);
 			tmp: string = sb_to_string(&current_string);
 			if strcmp(tmp, "FILE") {
-				token: Token = create_token(x, y, filename, filename);
+				token: Token = create_token(token_start_x, y, filename, filename);
 				token.tt = TK_DOUBLE_QUOTE;
 				array_append(ret, token);
 				sb_clear(&current_string);
@@ -470,7 +477,7 @@ tokenize: proc(src: *string, filename: string) -> [+]Token {
 					buf[i] = tmp_num[i];
 				}
 				buf_string: string = string{len, buf};
-				token: Token = create_token(x, y, buf_string, filename);
+				token: Token = create_token(token_start_x, y, buf_string, filename);
 				array_append(ret, token);
 				sb_clear(&current_string);
 			} else {
@@ -478,34 +485,39 @@ tokenize: proc(src: *string, filename: string) -> [+]Token {
                 panic("Not implemented directive for this: ", #FILE, #LINE);
 			}
 			free(tmp.ptr);
+			x = x + 1;
 		} else if is_delim(c) {
 			if current_string.length > 0 {
 				// save the token first
-				token: Token = create_token(x, y, sb_to_string(&current_string), filename);
+				token: Token = create_token(token_start_x, y, sb_to_string(&current_string), filename);
 				array_append(ret, token);
 				sb_clear(&current_string);
 			}
 			if c == '/' && p == '/' {
 				i = i + 1;
-				// not incrementing x here becuase it doesn't matter for comments
-				for c != '\n' {
+				for i < src.length && c != '\n' {
 					c = src.ptr[i];
 					i = i + 1;
 				}
-                i = i - 1; // let the for loop handle the new line
+				if c == '\n' {
+					i = i - 1; // let the for loop handle the new line
+					y = y + 1;
+					x = 0;
+				}
 				continue;
 			}
 			if is_double_delim(c, p) {
-				x = x + 1;
+				token_start_x = x;
 				sb_push(&current_string, c);
-				x = x + 1;
 				sb_push(&current_string, p);
+				x = x + 2;
 
-				token: Token = create_token(x, y, sb_to_string(&current_string), filename);
+				token: Token = create_token(token_start_x, y, sb_to_string(&current_string), filename);
 				array_append(ret, token);
-				sb_clear(&current_string);				
-                i = i + 1;
+				sb_clear(&current_string);
+				i = i + 1;
 			} else if c == '"' {
+				token_start_x = x;
 				i = i + 1; x = x + 1;
 				c = src.ptr[i];
 				for c != '"' {
@@ -513,40 +525,46 @@ tokenize: proc(src: *string, filename: string) -> [+]Token {
 					i = i + 1; x = x + 1;
 					c = src.ptr[i];
 				}
-				token: Token = Token{x, y, sb_to_string(&current_string), TK_DOUBLE_QUOTE, filename};
+				x = x + 1;
+				token: Token = Token{token_start_x, y, sb_to_string(&current_string), TK_DOUBLE_QUOTE, filename};
 				array_append(ret, token);
 				sb_clear(&current_string);
 			} else if c == '\'' {
+				token_start_x = x;
 				i = i + 1; x = x + 1;
 				c = src.ptr[i];
 				for c != '\'' {
-                    // TODO: actually this seems a bit weird
 					if c == '\\' {
 						sb_push(&current_string, c);
-						i = i + 1;
+						i = i + 1; x = x + 1;
 						c = src.ptr[i];
-                        sb_push(&current_string, c);
-                        i = i + 1;
-                        c = src.ptr[i];
+						sb_push(&current_string, c);
+						i = i + 1; x = x + 1;
+						c = src.ptr[i];
 					} else {
 						sb_push(&current_string, c);
 						i = i + 1; x = x + 1;
 						c = src.ptr[i];
 					}
 				}
-				token: Token = Token{x, y, sb_to_string(&current_string), TK_SINGLE_QUOTE, filename};
+				x = x + 1;
+				token: Token = Token{token_start_x, y, sb_to_string(&current_string), TK_SINGLE_QUOTE, filename};
 				array_append(ret, token);
 				sb_clear(&current_string);
 			} else {
-				x = x + 1;
+				token_start_x = x;
 				sb_push(&current_string, c);
-				token: Token = create_token(x, y, sb_to_string(&current_string), filename);
+				x = x + 1;
+				token: Token = create_token(token_start_x, y, sb_to_string(&current_string), filename);
 				array_append(ret, token);
 				sb_clear(&current_string);
 			}
 		} else {
-			x = x + 1;
+			if current_string.length == 0 {
+				token_start_x = x;
+			}
 			sb_push(&current_string, c);
+			x = x + 1;
 		}
 	}
 
