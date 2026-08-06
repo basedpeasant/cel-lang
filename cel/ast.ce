@@ -184,6 +184,8 @@ Call_Node: type struct {
 Struct_Init_Node: type struct {
     name: *Token,
     exprs: [+]Expression,
+    is_choice: bool,
+    tag: i32
 }
 
 Array_Literal: type struct {
@@ -647,7 +649,6 @@ extract_type: proc(ast: *Ast) -> Type {
 				name: *Token = current_token;
                 t: Type = extract_type(ast);
                 current_token = get_current_token(ast);
-                advance(ast);
                 if current_token.tt == TK_COMMA {
                     advance(ast);
                 } else if current_token.tt != TK_CLOSE_CURLY {
@@ -907,7 +908,7 @@ parse_primary: proc(ast: *Ast, scope: u32, in_if: bool) -> Expression {
             advance(ast); // name
             advance(ast); // opencurly
             current_token = get_current_token(ast);
-            custom: Struct_Init_Node = Struct_Init_Node{ name, array_new(Expression) };
+            custom: Struct_Init_Node = Struct_Init_Node{ name, array_new(Expression), false, 0 };
             for current_token.tt != TK_CLOSE_CURLY {
                 value: Expression = ast_create_expr(ast, scope, false);
                 current_token = get_current_token(ast);

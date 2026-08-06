@@ -94,6 +94,9 @@ generate_types: proc(g: *Generator) {
                 sb_push_str(g.output, choice_name_str);
                 sb_push_str(g.output, " {\n");
                 g.indentation_level = g.indentation_level + 1;
+                output_indentations(g);
+                sb_push_str(g.output, "int _tag;\n");
+                output_indentations(g);
                 sb_push_str(g.output, "union {\n");
                 g.indentation_level = g.indentation_level + 1;
                 for i: i32 = 0; i < array_size(t.fields); i = i + 1 {
@@ -102,11 +105,12 @@ generate_types: proc(g: *Generator) {
                     c_type: string = get_c_type(field.type_name);
                     field_name: *Token = field.name;
                     sb_push_str(g.output, c_type);
-                    sb_push(g.output, ' ');
-                    sb_push_str(g.output, field_name.tok);
+                    sb_push_str(g.output, " _");
+                    sb_push_int(g.output, i);
                     sb_push_str(g.output, ";\n");
                 }
                 g.indentation_level = g.indentation_level - 1;
+                output_indentations(g);
                 sb_push_str(g.output, "};\n");
                 g.indentation_level = g.indentation_level - 1;
                 sb_push_str(g.output, "};\n");
@@ -520,14 +524,29 @@ walk_expression: proc(g: *Generator, expr_: *Expression) {
             walk_expression(g, e.base);
         },
         Struct_Init_Node => {
-            sb_push(g.output, '{');
-            for i: i32 = 0; i < array_size(e.exprs); i = i + 1 {
-                walk_expression(g, &e.exprs[i]);
-                if i != array_size(e.exprs) - 1 {
-                    sb_push(g.output, ',');
+            if e.is_choice {
+                sb_push(g.output, '{');
+                assert(array_size(e.exprs) == 1, "Choice type initializer MUST have only one value", #FILE, #LINE);
+                sb_push_str(g.output, "._tag = ");
+                printf("THIS IS A TEST: %d\n".ptr, e.tag);
+                sb_push_int(g.output, e.tag);
+                
+                sb_push(g.output, ',');
+                sb_push_str(g.output, "._");
+                sb_push_int(g.output, e.tag);
+                sb_push(g.output, '=');
+                walk_expression(g, &e.exprs[0]);
+                sb_push(g.output, '}');
+            } else {
+                sb_push(g.output, '{');
+                for i: i32 = 0; i < array_size(e.exprs); i = i + 1 {
+                    walk_expression(g, &e.exprs[i]);
+                    if i != array_size(e.exprs) - 1 {
+                        sb_push(g.output, ',');
+                    }
                 }
+                sb_push(g.output, '}');
             }
-            sb_push(g.output, '}');
         },
         Array_Literal => {
             // TODO: can't zero the rest because we don't know how much is there as of right now

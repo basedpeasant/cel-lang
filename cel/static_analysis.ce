@@ -90,6 +90,78 @@ lookup_name: proc(scopes: [+]Scope, current_scope: u32, name: string) -> *Variab
     }
 }
 
+lookup_type: proc(s: *State, name: *Token) -> *Type {
+    ast: *Ast = s.ast;
+    types: [+]Type = ast.types;
+    name_str: string = name.tok;
+    for i: i32 = 0; i < array_size(ast.types); i = i + 1 {
+        type_: *Type = &types[i];
+        // We only care about Type_Custom_Decl and Type_Choice
+        match t := type_ {
+            Type_Builtin => {},
+            Type_Pointer => {},
+            Type_Proc => {},
+            Type_Array => {},
+            Type_Dynamic_Array => {},
+            Type_Choice => {
+                type_name: *Token = t.name;
+                type_name_str: string = type_name.tok;
+                if strcmp(type_name_str, name_str) {
+                    return type_;
+                }
+            },
+            Type_Custom_Decl => {
+                type_name: *Token = t.name;
+                type_name_str: string = type_name.tok;
+                if strcmp(type_name_str, name_str) {
+                    return type_;
+                }
+            },
+            Type_Custom => {},
+            Type_Unknown => {},
+        } 
+    }
+    // TODO: obviously change this error because its stupid
+    printf("%s\n".ptr, name_str.ptr);
+    panic("^^ Undefined type", #FILE, #LINE);
+}
+
+determine_choice_tags: proc(s: *State, init: *Struct_Init_Node, choice_type: *Type_Choice) {
+    ast: *Ast = s.ast;
+    types: [+]Type = ast.types;
+    tag: i32 = 0;
+    assert(init.is_choice, "The struct initializer MUST be marked as a choice before entering this procedure", #FILE, #LINE);
+    assert(array_size(init.exprs) == 1, "Choice type initializer MUST have only one value", #FILE, #LINE);
+    expr: Expression = init.exprs[0];
+    expr_type: *Type = match_expression(s, &expr);
+
+    // TODO: handle when user provides other types of values
+    match et := expr_type {
+        Type_Builtin => { todo("Cannot use expressions in choice intialization", #FILE, #LINE); },
+        Type_Pointer => { todo("Cannot use expressions in choice intialization", #FILE, #LINE); },
+        Type_Proc => { todo("Cannot use expressions in choice intialization", #FILE, #LINE); },
+        Type_Array => { todo("Cannot use expressions in choice intialization", #FILE, #LINE); },
+        Type_Dynamic_Array => { todo("Cannot use expressions in choice intialization", #FILE, #LINE); },
+        Type_Choice => { todo("Cannot use expressions in choice intialization", #FILE, #LINE); },
+        Type_Custom_Decl => { todo("Cannot use expressions in choice intialization", #FILE, #LINE); },
+        Type_Custom => {
+            expr_type_name: *Token = et.name;
+            expr_type_name_str: string = expr_type_name.tok;
+            for j: i32 = 0; j < array_size(choice_type.fields); j = j + 1 {
+                field: *Field = &choice_type.fields[j];
+                field_token: *Token = field.name;
+                field_name: string = field_token.tok;
+                if strcmp(field_name, expr_type_name_str) {
+                    init.tag = j;
+                    return;
+                }
+            }
+        },
+        Type_Unknown => { todo("Cannot use expressions in choice intialization", #FILE, #LINE); },
+    }
+    panic("Could not find type specified in choice initializer in choice declaration", #FILE, #LINE); // TODO: better errors
+}
+
 get_proc_return_type: proc(p: *Variable_Decl_Node) -> *Type {
     // TODO: this is only like this because we are forced to match
     //       on every Type, once we can coerce choice types to one
@@ -250,7 +322,32 @@ match_expression: proc(s: *State, _expr: *Expression) -> *Type {
             return match_expression(s, e.base);
         },
         Struct_Init_Node => { 
-            todo("", #FILE, #LINE);
+            type_def: *Type = lookup_type(s, e.name);
+            match t := type_def {
+                Type_Builtin => {},
+                Type_Pointer => {},
+                Type_Proc => {},
+                Type_Array => {},
+                Type_Dynamic_Array => {},
+                Type_Choice => {
+                    // We need to construct
+                    e.is_choice = true;
+                    determine_choice_tags(s, e, t);
+                },
+                Type_Custom_Decl => {
+                    // We do nothing in this case because
+                    // codegen will correctly spit this out 
+                    // TODO: make the error messages better, more detailed etc
+                    assert(array_size(e.exprs) == array_size(t.fields), 
+                        "struct initializer must match the number of fields in the struct definition", 
+                        #FILE, 
+                        #LINE
+                    );
+                },
+                Type_Custom => {},
+                Type_Unknown => {},
+            }
+            //todo("", #FILE, #LINE);
         },
         Array_Literal => { 
             todo("", #FILE, #LINE);
@@ -275,7 +372,10 @@ sa_walk_var_decl: proc(s: *State, v: *Variable_Decl_Node) {
         Type_Dynamic_Array => {},
         Type_Choice => {},
         Type_Custom_Decl => {},
-        Type_Custom => {},
+        Type_Custom => {
+            // todo("static analysis for custom types", #FILE, #LINE);
+            match_expression(s, v.rhs);
+        },
         Type_Unknown => {
             resolved_type: *Type = match_expression(s, v.rhs);
             t.resolved = true;

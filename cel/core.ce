@@ -233,6 +233,27 @@ sb_push_str: proc(sb: *String_Builder, str: string) {
     }
 }
 
+sb_push_int: proc(sb: *String_Builder, num: i64) {
+    if num == 0 {
+        sb_push(sb, '0');
+        return;
+    }
+    buf: [20]u8;
+    len: i32 = 0;
+    remainder: i32 = 0;
+    for i: i32 = 0; num > 0; i = i + 1 {
+        assert(i != 20, "buffer overflow in sb_push_int", #FILE, #LINE);
+        remainder = num % 10;
+        buf[i] = '0' + remainder;
+        num = num / 10;
+        len = len + 1;
+    } 
+
+    for i: i32 = len - 1; i >= 0; i = i - 1 {
+        sb_push(sb, buf[i]);
+    }
+}
+
 sb_to_string: proc(sb: *String_Builder) -> string {
 	ptr: *u8;
     ptr = calloc(sb.length + 1, sizeof(char));
