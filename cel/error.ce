@@ -65,9 +65,25 @@ get_line: proc(line_number: i32) -> string {
     return ret;
 }
 
+// Number of context lines shown above and below the error line.
+ERROR_CONTEXT: i32 = 2;
+
+count_digits: proc(n: i32) -> i32 {
+    if n == 0 {
+        return 1;
+    }
+    count: i32 = 0;
+    m: i32 = n;
+    for m > 0 {
+        count = count + 1;
+        m = m / 10;
+    }
+    return count;
+}
+
 // Report an error at an explicit location. `col` and `length` are the
 // 0-based byte offset and width of the problem token in the line. Prints the
-// location header plus the line with the offending span highlighted
+// location header plus the line with the offending bit highlighted
 // in red. Does not exit.
 report_error_at: proc(file: string, line_no: i32, col: i32, length: i32, msg: string) {
     on: bool = color_enabled(0);
@@ -103,47 +119,88 @@ report_error_at: proc(file: string, line_no: i32, col: i32, length: i32, msg: st
     }
     sb_push(&sb, '\n');
 
-    // the problem line with the span highlighted in red
-    line_str: string = get_line(line_no);
-    line_len: i32 = line_str.length;
-    if line_len == 0 {
+    // context window: show ERROR_CONTEXT lines above and below the error line
+    error_line: string = get_line(line_no);
+    if error_line.ptr == 0 {
         out: string = sb_to_string(&sb);
         printf("%s".ptr, out.ptr);
         sb_free(&sb);
         return;
     }
 
-    if end > line_len {
-        end = line_len;
+    error_line_len: i32 = error_line.length;
+    if end > error_line_len {
+        end = error_line_len;
     }
-    if start > line_len {
-        start = line_len;
+    if start > error_line_len {
+        start = error_line_len;
     }
     if start > end {
         end = start;
     }
 
-    sb_push_str(&sb, "    ");
-    sb_push_range(&sb, line_str, 0, start);
-    if on {
-        sb_push(&sb, 27);
-        sb_push_str(&sb, "[31m");
+    first_line: i32 = line_no - ERROR_CONTEXT;
+    if first_line < 1 {
+        first_line = 1;
     }
-    sb_push_range(&sb, line_str, start, end);
-    if on {
-        sb_push(&sb, 27);
-        sb_push_str(&sb, "[0m");
+    last_line: i32 = line_no + ERROR_CONTEXT;
+    gutter_width: i32 = count_digits(last_line);
+
+    n: i32 = first_line;
+    for n <= last_line {
+        ctx_line: string = get_line(n);
+        if ctx_line.ptr == 0 {
+            break;
+        }
+
+        digits: i32 = count_digits(n);
+        pad: i32 = gutter_width - digits;
+        j: i32 = 0;
+        for j < pad {
+            sb_push(&sb, ' ');
+            j = j + 1;
+        }
+        if on {
+            if n == line_no {
+                sb_push(&sb, 27);
+                sb_push_str(&sb, "[01;31m");
+            }
+        }
+        sb_push_int(&sb, n);
+        if on {
+            if n == line_no {
+                sb_push(&sb, 27);
+                sb_push_str(&sb, "[0m");
+            }
+        }
+        sb_push_str(&sb, " | ");
+
+        if n == line_no {
+            ctx_len: i32 = ctx_line.length;
+            sb_push_range(&sb, ctx_line, 0, start);
+            if on {
+                sb_push(&sb, 27);
+                sb_push_str(&sb, "[31m");
+            }
+            sb_push_range(&sb, ctx_line, start, end);
+            if on {
+                sb_push(&sb, 27);
+                sb_push_str(&sb, "[0m");
+            }
+            sb_push_range(&sb, ctx_line, end, ctx_len);
+        } else {
+            ctx_len2: i32 = ctx_line.length;
+            sb_push_range(&sb, ctx_line, 0, ctx_len2);
+        }
+        sb_push(&sb, '\n');
+        n = n + 1;
     }
-    sb_push_range(&sb, line_str, end, line_len);
-    sb_push(&sb, '\n');
 
     out: string = sb_to_string(&sb);
     printf("%s".ptr, out.ptr);
     sb_free(&sb);
 }
 
-// Report an error for a given token with the token's filename, line, column and
-// width. Does not exit.
 report_error: proc(token: *Token, msg: string) {
     token_str: string = token.tok;
     report_error_at(token.filename, token.y, token.x, token_str.length, msg);
