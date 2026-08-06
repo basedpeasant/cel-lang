@@ -328,10 +328,17 @@ ast_match: proc(ast: *Ast, tt: u8, file: string, line: i32) {
     current_token_str: string = current_token.tok;
     tt_str: string = get_tt_string_repr(current_token.tt);
     tt_expected: string = get_tt_string_repr(tt);
-    filename: string = current_token.filename;
 	if current_token.tt != tt {
-		printf("[ERROR]: Expected %s but got %s ('%s') on %s:%d\n".ptr, tt_expected.ptr, tt_str.ptr, current_token_str.ptr, filename.ptr, current_token.y);
-		panic("Compiler failed", file, line);
+		sb: String_Builder;
+		sb_push_str(&sb, "Expected ");
+		sb_push_str(&sb, tt_expected);
+		sb_push_str(&sb, " but got ");
+		sb_push_str(&sb, tt_str);
+		sb_push_str(&sb, " ('");
+		sb_push_str(&sb, current_token_str);
+		sb_push_str(&sb, "')");
+		msg: string = sb_to_string(&sb);
+		compile_error(current_token, msg);
 	}
 }
 
@@ -998,10 +1005,7 @@ parse_primary: proc(ast: *Ast, scope: u32, in_if: bool) -> Expression {
         ret: Expression = Expression{ array_lit };
         return ret;
     } else {
-        printf("-----------------------------------\n".ptr);
-        print_token(current_token);
-        // breakpoint(0);
-        panic("(Parse Primary) Unexpected Token", #FILE, #LINE);
+        compile_error(current_token, "(Parse Primary) Unexpected Token");
     }
 }
 
