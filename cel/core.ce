@@ -3,7 +3,8 @@ write: @extern proc(fd: i32, buf: *u8, count: i32) -> i32;
 exit: @extern proc(code: i32);
 
 abort: @extern proc();
-//calloc: @extern proc(n: u64, size: u64) -> void_ptr;
+calloc: @extern proc(n: u64, size: u64) -> void_ptr;
+malloc: @extern proc(size: u64) -> void_ptr;
 realloc: @extern proc(ptr: void_ptr, size: u64) -> void_ptr;
 free: @extern proc(ptr: void_ptr);
 memset: @extern proc(ptr: void_ptr, c: i32, n: u64) -> void_ptr;

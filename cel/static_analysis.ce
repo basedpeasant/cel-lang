@@ -45,7 +45,9 @@ get_builtin_proc_type: proc(name: string) -> *Type {
     if strcmp(name, "printf") {
         return create_type_builtin(TYPE_VOID);
     } else if strcmp(name, "calloc") {
-        return create_type_builtin(TYPE_I64);
+        return create_type_builtin(TYPE_VOID_PTR);
+    } else if strcmp(name, "malloc") {
+        return create_type_builtin(TYPE_VOID_PTR);
     } else if strcmp(name, "sizeof") {
         return create_type_builtin(TYPE_I32);
     } else {
@@ -152,7 +154,7 @@ determine_choice_tags: proc(s: *State, init: *Struct_Init_Node, choice_type: *Ty
                 field_token: *Token = field.name;
                 field_name: string = field_token.tok;
                 if strcmp(field_name, expr_type_name_str) {
-                    init.tag = j;
+                    init.tag = field.tag;
                     return;
                 }
             }
@@ -197,14 +199,14 @@ check_types: proc(t1: *Type, t2: *Type) -> bool {
     array_type1: *Type = 0;
     name1: *Token = 0;
     match t1_ := t1 {
-        Type_Builtin => { kind1 = 1; builtin_kind1 = t1_.kind; }
-        Type_Pointer => { kind1 = 2; inner1 = t1_.inner; }
-        Type_Proc => { kind1 = 3; return_type1 = t1_.return_type; }
-        Type_Array => { kind1 = 4; array_type1 = t1_.array_type; }
-        Type_Dynamic_Array => { kind1 = 5; array_type1 = t1_.array_type; }
-        Type_Choice => { kind1 = 6; }
-        Type_Custom_Decl => { kind1 = 7; name1 = t1_.name; }
-        Type_Custom => { kind1 = 8; name1 = t1_.name; }
+        Type_Builtin => { kind1 = 1; builtin_kind1 = t1_.kind; },
+        Type_Pointer => { kind1 = 2; inner1 = t1_.inner; },
+        Type_Proc => { kind1 = 3; return_type1 = t1_.return_type; },
+        Type_Array => { kind1 = 4; array_type1 = t1_.array_type; },
+        Type_Dynamic_Array => { kind1 = 5; array_type1 = t1_.array_type; },
+        Type_Choice => { kind1 = 6; },
+        Type_Custom_Decl => { kind1 = 7; name1 = t1_.name; },
+        Type_Custom => { kind1 = 8; name1 = t1_.name; },
         Type_Unknown => { kind1 = 9; }
     }
 
@@ -216,14 +218,14 @@ check_types: proc(t1: *Type, t2: *Type) -> bool {
     array_type2: *Type = 0;
     name2: *Token = 0;
     match t2_ := t2 {
-        Type_Builtin => { kind2 = 1; builtin_kind2 = t2_.kind; }
-        Type_Pointer => { kind2 = 2; inner2 = t2_.inner; }
-        Type_Proc => { kind2 = 3; return_type2 = t2_.return_type; }
-        Type_Array => { kind2 = 4; array_type2 = t2_.array_type; }
-        Type_Dynamic_Array => { kind2 = 5; array_type2 = t2_.array_type; }
-        Type_Choice => { kind2 = 6; }
-        Type_Custom_Decl => { kind2 = 7; name2 = t2_.name; }
-        Type_Custom => { kind2 = 8; name2 = t2_.name; }
+        Type_Builtin => { kind2 = 1; builtin_kind2 = t2_.kind; },
+        Type_Pointer => { kind2 = 2; inner2 = t2_.inner; },
+        Type_Proc => { kind2 = 3; return_type2 = t2_.return_type; },
+        Type_Array => { kind2 = 4; array_type2 = t2_.array_type; },
+        Type_Dynamic_Array => { kind2 = 5; array_type2 = t2_.array_type; },
+        Type_Choice => { kind2 = 6; },
+        Type_Custom_Decl => { kind2 = 7; name2 = t2_.name; },
+        Type_Custom => { kind2 = 8; name2 = t2_.name; },
         Type_Unknown => { kind2 = 9; }
     }
 
@@ -394,12 +396,23 @@ sa_walk_decl: proc(s: *State, _decl: *Decl_Node) {
     }
 }
 
+sa_walk_expression_statement_with_block: proc(s: *State, es: *Expression_Statement_With_Block) {
+    match eswb := es {
+        If_Node => {},
+        For_Node => {},
+        Match_Node => {
+            todo("static analysis for Match Node", #FILE, #LINE);
+        }
+    }
+}
+
 sa_walk_block: proc(s: *State, block: *Block_Node) {
     isRoot: bool = block.scope == 0;
     ast: *Ast = s.ast;
     ast.current_scope = block.scope; 
     for i: i32 = 0; i < array_size(block.statements); i = i + 1 {
         statement: *Statement = &block.statements[i];
+        // TODO: potentially too much nesting going on here, not sure
         match st := statement {
             Expression_Statement => {
                 stmt: *Expression_Statement = st;
@@ -408,7 +421,8 @@ sa_walk_block: proc(s: *State, block: *Block_Node) {
                         match_expression(s, es);
                     },
                     Expression_Statement_With_Block => {
-                        //todo("", #FILE, #LINE);
+                        // Do nothing with if and for (for now)
+                        sa_walk_expression_statement_with_block(s, es);
                     }
                 }
             },

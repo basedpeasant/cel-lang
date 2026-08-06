@@ -689,6 +689,8 @@ get_tt_string_repr: proc(tt: u8) -> string {
         return "TK_DEREF";
     } else if tt == TK_CONTINUE {
         return "TK_CONTINUE";
+    } else if tt == TK_FAT_ARROW {
+        return "TK_FAT_ARROW";
 	} else {
         printf("%d\n".ptr, tt);
 		panic("unreachable (get_tt_string_repr)", #FILE, #LINE);

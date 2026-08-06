@@ -14,6 +14,9 @@ generate_types: proc(g: *Generator) {
     // generating types
     // TODO: make sure that this is changed once match DX becomes better cus this is really
     //       ass
+    // TODO: We need to also make it such that it generates types in order so that
+    //       declaration order for types doesn't matter
+    //       i.e. need to map out dependencies of types ig
     for i: i32 = 0; i < array_size(g.types); i = i + 1 {
         new_type: Type = g.types[i];
         match t := new_type {
@@ -300,7 +303,7 @@ get_c_type: proc(type__: Type) -> string {
                 printf("UNKNOWN TYPE %d\n".ptr, t.kind);
                 assert(false, "Unhandled TYPE", #FILE, #LINE);
             }
-        }
+        },
         Type_Pointer => {
             inner: *Type = t.inner;
             c_type: string = get_c_type(inner[0]);
@@ -313,27 +316,27 @@ get_c_type: proc(type__: Type) -> string {
             ret: string = sb_to_string(&sb);
             sb_free(&sb);
             return ret;
-        }
+        },
         Type_Proc => {
             todo("get_c_type (Type_Proc)", #FILE, #LINE);
-        }
+        },
         Type_Array => {
             todo("get_c_type (Type_Array)", #FILE, #LINE);
-        }
+        },
         Type_Dynamic_Array => {
             todo("get_c_type (Type_Dynamic_Array)", #FILE, #LINE);
-        }
+        },
         Type_Choice => {
             todo("get_c_type (Type_Choice)", #FILE, #LINE);
-        }
+        },
         Type_Custom_Decl => {
             todo("get_c_type (Type_Custom_Decl)", #FILE, #LINE);
-        }
+        },
         Type_Custom => {
             name: *Token = t.name;
             name_str: string = name.tok;
             return name_str;
-        }
+        },
         Type_Unknown => {
             assert(t.resolved, "an unresolved Type_Unknown reached get_c_type", #FILE, #LINE);
             return get_c_type(t.type_[0]);
@@ -577,17 +580,17 @@ walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
             sb_push_str(g.output, c_type_str);
             // don't forget the space
             sb_push(g.output, ' ');
-        }
+        },
         Type_Pointer => {
             c_type_str: string = get_c_type(t.inner[0]);
             sb_push_str(g.output, c_type_str);
             sb_push(g.output, '*');
             sb_push(g.output, ' ');
-        }
+        },
         Type_Proc => {
             walk_proc(g, t);
             skip = true;
-        }
+        },
         Type_Array => {
             // TODO: cannot dereference in any other way right now 
             c_type_str: string = get_c_type(t.array_type[0]);
@@ -595,10 +598,10 @@ walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
             sb_push(g.output, ' ');
             is_arr = true;
             size_expr = t.size;
-        }
+        },
         Type_Dynamic_Array => {
             todo("implement walk for Type_Dynamic_Array", #FILE, #LINE);
-        }
+        },
         Type_Choice => {
             todo("implement walk for Type_Choice", #FILE, #LINE);
         },
@@ -653,26 +656,26 @@ walk_decl: proc(g: *Generator, decl_: *Decl_Node) {
             match _n := var_type {
                 Type_Builtin => {
                     sb_push_str(g.output, ";\n");
-                }
+                },
                 Type_Pointer => {
                     sb_push_str(g.output, ";\n");
-                }
-                Type_Proc => {}
+                },
+                Type_Proc => {},
                 Type_Array => {
                     sb_push_str(g.output, ";\n");
-                }
+                },
                 Type_Dynamic_Array => {
                     sb_push_str(g.output, ";\n");
-                }
+                },
                 Type_Choice => {
                     sb_push_str(g.output, ";\n");
-                }
+                },
                 Type_Custom_Decl => {
                     sb_push_str(g.output, ";\n");
-                }
+                },
                 Type_Custom => {
                     sb_push_str(g.output, ";\n");
-                }
+                },
                 Type_Unknown => {
                     sb_push_str(g.output, ";\n");
                 }
@@ -752,12 +755,12 @@ walk_statement: proc(g: *Generator, s: *Statement) {
                     walk_expression_with_block(g, e);
                 }
             }
-        }
+        },
         Decl_Node => {
             walk_decl(g, n);
             // NOTE: semi-colon ; is added in walk_decl instead of here because
             //       its too troublesome to check if the decl_node is a proc or not
-        }
+        },
         Return_Node => {
             if n.expr == 0 {
                 sb_push_str(g.output, "return;");

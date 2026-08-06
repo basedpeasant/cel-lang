@@ -98,6 +98,7 @@ Type: type choice {
 Field: type struct {
 	name: *Token,
 	type_name: Type,
+    tag: u8
 }
 
 String_Literal: type struct {
@@ -229,10 +230,23 @@ For_Node: type struct {
     post: *Expression
 }
 
+MATCH_SWITCH:  u8 = 0;
+MATCH_CHOICE:  u8 = 1;
+MATCH_UNKNOWN: u8 = 2; // NOTE: should result in a error if encountered
+
+Match_Node: type struct {
+    match_kind: u8,
+    fields: [+]Field,
+    subject: *Variable_Decl_Node,
+    blocks: [+]Block_Node,
+    needs_deref: bool,
+    token: *Token, // for diagnostics (maybe(?) //TODO: maybe not)
+}
+
 Expression_Statement_With_Block: type choice {
 	If_Node,
 	For_Node,
-	// MatchNode,
+	Match_Node,
 }
 
 Expression_Statement: type choice {
@@ -382,28 +396,29 @@ get_type_string: proc(type__: Type) -> string {
                printf("\n%d\n".ptr, kind);
                todo("implement get_type_string for Type_Builtin", #FILE, #LINE);
            }
-       }
+       },
        Type_Pointer => { 
            todo("implement get_type_string for Type_Pointer", #FILE, #LINE);
-       }
+       },
        Type_Proc => { 
            todo("implement get_type_string for Type_Proc", #FILE, #LINE);
-       }
+       },
        Type_Array => { 
            todo("implement get_type_string for Type_Array", #FILE, #LINE);
-       }
+       },
        Type_Dynamic_Array => { 
            todo("implement get_type_string for Type_Dynamic_Array", #FILE, #LINE);
-       }
+       },
        Type_Choice => { 
            todo("implement get_type_string for Type_Choice", #FILE, #LINE);
-       }
+       },
        Type_Custom_Decl => {
            todo("implement get_type_string for Type_Custom_Decl", #FILE, #LINE);
-       }
+       },
        Type_Custom => { 
-           todo("implement get_type_string for Type_Custom", #FILE, #LINE);
-       }
+           name: *Token = x.name;
+           return name.tok;
+       },
        Type_Unknown => {
            return "UNKNOWN";
        }
@@ -613,6 +628,7 @@ extract_type: proc(ast: *Ast) -> Type {
             advance(ast);
             ast_match(ast, TK_OPEN_CURLY, #FILE, #LINE);
             advance(ast);
+            tag: u8 = 0;
             for true {
                 current_token: *Token = get_current_token(ast);
                 if current_token.tt == TK_CLOSE_CURLY {
@@ -633,8 +649,9 @@ extract_type: proc(ast: *Ast) -> Type {
                     printf("%s\n".ptr, current_token_str.ptr);
                     panic("Seems you have missed a comma!", #FILE, #LINE);
                 }
-                field: Field = Field{ name, field_type };
+                field: Field = Field{ name, field_type, tag };
                 array_append(fields, field);
+                tag = tag + 1;
             }
 			// TODO: Attributes
             struct_type: Type_Custom_Decl = Type_Custom_Decl{ 0, fields, array_new(Attribute) };
@@ -645,6 +662,7 @@ extract_type: proc(ast: *Ast) -> Type {
             advance(ast);
 			ast_match(ast, TK_OPEN_CURLY, #FILE, #LINE);
             advance(ast);
+            tag: u8 = 0;
             fields: [+]Field = array_new(Field);
             // TODO: named fields
             for true {
@@ -664,8 +682,9 @@ extract_type: proc(ast: *Ast) -> Type {
                     printf("%s\n".ptr, tmp_str.ptr);
                     panic("Seems you have missed a comma!", #FILE, #LINE);
                 }
-				field: Field = Field{ name, t };
+				field: Field = Field{ name, t, tag };
 				array_append(fields, field);
+                tag = tag + 1;
             }
 			ast_match(ast, TK_CLOSE_CURLY, #FILE, #LINE);
 			// TODO: Attributes
@@ -728,7 +747,7 @@ extract_type: proc(ast: *Ast) -> Type {
                 for i: i32 = 0; i < array_size(attributes); i = i + 1 {
                     array_append(t.attributes, attributes[i]);
                 }
-			}
+			},
 			Type_Array => { todo("(Array) not implemented attributes for types outside of proc", #FILE, #LINE); },
 			Type_Dynamic_Array => { todo("(Dynamic_Array) not implemented attributes for types outside of proc", #FILE, #LINE); },
             Type_Choice => { todo("(Choice) not implemented attributes for types outside of proc", #FILE, #LINE); },
@@ -851,6 +870,8 @@ validate_char: proc(t: *Token) -> u64 {
                 return 9;
             } else if c1 == 'n' {
                 return 10;
+            } else if c1 == 'r' {
+                return 13;
             } else if c1 == '\\' {
                 return 92;
             } else if c1 == '\'' {
@@ -1187,7 +1208,7 @@ get_expr_tag: proc(expr_: *Expression) -> i32 {
     match _e := expr {
         Binary_Node => {
             return 0;
-        }
+        },
         Number_Node => {
             return 1;
         },
@@ -1454,6 +1475,15 @@ add_current_directory: proc(ast: *Ast, filename: string) -> string {
     return ret;
 }
 
+// returns a malloc'd expression for prolonged use
+// TODO: need to figure out this memory situation (i.e. sort out allocs)
+allocate_expression: proc(expr: *Expression) -> *Expression {
+    ret: *Expression = malloc(sizeof(Expression));
+    memcpy(ret, expr, sizeof(Expression));
+}
+
+// TODO/NOTE: the copy_statement calls are quite strange here
+//            probably needs to be refactored later
 create_statement: proc(ast: *Ast, scope: u32) -> *Statement {
     current_token: *Token = get_current_token(ast);
     stmt_ret: *Statement = 0;
@@ -1478,10 +1508,10 @@ create_statement: proc(ast: *Ast, scope: u32) -> *Statement {
             match type_ := stmt_type {
                 Type_Builtin => {
                     // do nothing
-                }
+                },
                 Type_Pointer => {
                     // do nothing
-                }
+                },
                 Type_Proc => {
                     type_.name = name;
                     proc_header: Proc_Header_Node = Proc_Header_Node{ 
@@ -1491,28 +1521,28 @@ create_statement: proc(ast: *Ast, scope: u32) -> *Statement {
                     };
                     array_append(ast.procs, proc_header);
                     rhs_check = false;
-                }
+                },
                 Type_Array => {
                     // do nothing
-                }
+                },
                 Type_Dynamic_Array => {
                     // do nothing
-                }
+                },
                 Type_Choice => {
                     type_.name = name;
                     array_append(ast.types, stmt_type);
                     skip = true;
                     rhs_check = false;
-                }
+                },
                 Type_Custom_Decl => {
                     type_.name = name;
                     array_append(ast.types, stmt_type);
                     skip = true;
                     rhs_check = false;
-                }
+                },
                 Type_Custom => {
                     // do nothing
-                }
+                },
                 Type_Unknown => {
                     unreachable("We should never encounter this here", #FILE, #LINE);
                 }
@@ -1641,6 +1671,77 @@ create_statement: proc(ast: *Ast, scope: u32) -> *Statement {
         ast_match(ast, TK_SEMICOLON, #FILE, #LINE);
         b: Break_Node = Break_Node { 0 };
         stmt: Statement = Statement { b };
+        stmt_ret = copy_statement(stmt);
+    } else if current_token.tt == TK_MATCH {
+        // NOTE: might be useless saving this token 
+        match_token: *Token = current_token; // saving for diagnostics
+        advance(ast);
+        ast_match(ast, TK_WORD, #FILE, #LINE);
+        subject_name: *Token = get_current_token(ast);
+        subject: *Variable_Decl_Node = 0;
+        advance(ast);
+        current_token = get_current_token(ast);
+        fields: [+]Field = array_new(Field);
+        blocks: [+]Block_Node = array_new(Block_Node);
+        match_kind: u8 = MATCH_UNKNOWN;
+        needs_deref: bool = false; // TODO: handle this
+        if current_token.tt == TK_SHORT_ASSIGN {
+            match_kind = MATCH_SWITCH;
+            advance(ast);
+            subject_expr: Expression = ast_create_expr(ast, scope, true);
+            subject_rhs: *Expression = allocate_expression(&subject_expr);
+            ast_match(ast, TK_OPEN_CURLY, #FILE, #LINE);
+            advance(ast);
+            t_unknown: Type_Unknown = Type_Unknown{ false, 0 };
+            subject_type: Type = Type{ t_unknown };
+            subject_tmp: Variable_Decl_Node = Variable_Decl_Node { 
+                subject_name,
+                subject_rhs,
+                subject_type,
+                false
+            };
+            subject = malloc(sizeof(Variable_Decl_Node));
+            memcpy(subject, &subject_tmp, sizeof(Variable_Decl_Node));
+            tu: Type_Unknown = Type_Unknown { 0, 0 };
+            t: Type = Type{ tu }; // just making this for repeated use below
+            for true {
+                current_token = get_current_token(ast);
+                if current_token.tt == TK_CLOSE_CURLY {
+                    break;
+                }
+                ast_match(ast, TK_WORD, #FILE, #LINE);
+                // fill Match_Node with fields of Type_Unknown 
+                // and then work it out in static_analysis
+                name: *Token = current_token;
+                field: Field = Field{ name, t, 0 };
+                array_append(fields, field);
+                advance(ast);
+                ast_match(ast, TK_FAT_ARROW, #FILE, #LINE);
+                advance(ast);
+                // TODO: handle cases where theres only one statement
+                ast_match(ast, TK_OPEN_CURLY, #FILE, #LINE);
+                advance(ast);
+                // TODO: put the vardecl into the tihs block
+                block: Block_Node = create_block(ast, false, scope);
+                array_append(blocks, block);
+                save: *Token = get_current_token(ast); // just for the comma diagnostic
+                ast_match(ast, TK_CLOSE_CURLY, #FILE, #LINE);
+                advance(ast);
+                current_token = get_current_token(ast);
+                if current_token.tt == TK_COMMA {
+                    advance(ast);
+                } else if current_token.tt == TK_WORD {
+                    compile_error(save, "Expected a comma here");
+                }
+            }
+        } else {
+            match_kind = MATCH_SWITCH;
+            todo("handle the other kinds of match statement", #FILE, #LINE);
+        }
+        match_node: Match_Node = Match_Node{ match_kind, fields, subject, blocks, needs_deref, match_token };
+        expr_stmt_with_block: Expression_Statement_With_Block = Expression_Statement_With_Block{ match_node };
+        expr_stmt: Expression_Statement = Expression_Statement{ expr_stmt_with_block };
+        stmt: Statement = Statement{ expr_stmt };
         stmt_ret = copy_statement(stmt);
     } else {
         print_token(current_token);
@@ -1799,7 +1900,7 @@ print_decl: proc(decl: *Decl_Node, indentations: i32) {
                         print_indentations(indentations + 4);
                         printf("Initializer: (none)\n".ptr);
                     }
-				}
+				},
 				Type_Pointer => {
 					print_indentations(indentations + 2);
 					printf("Variable Declaration:\n".ptr);
@@ -1817,7 +1918,7 @@ print_decl: proc(decl: *Decl_Node, indentations: i32) {
                         print_indentations(indentations + 4);
                         printf("Initializer: (none)\n".ptr);
                     }
-				}
+				},
 				Type_Proc => {
 					print_indentations(indentations + 2);
 					printf("Proc Declaration:\n".ptr);
@@ -1842,7 +1943,7 @@ print_decl: proc(decl: *Decl_Node, indentations: i32) {
                     } else {
                         printf("(Null)\n".ptr);
                     }
-				}
+				},
 				Type_Array => {
 					print_indentations(indentations + 2);
 					printf("Variable Declaration:\n".ptr);
@@ -1860,7 +1961,7 @@ print_decl: proc(decl: *Decl_Node, indentations: i32) {
                         print_indentations(indentations + 4);
                         printf("Initializer: (none)\n".ptr);
                     }
-				}
+				},
 				Type_Dynamic_Array => {
 					print_indentations(indentations + 2);
 					printf("Variable Declaration (DynamicArray):\n".ptr);
@@ -1878,10 +1979,10 @@ print_decl: proc(decl: *Decl_Node, indentations: i32) {
                         print_indentations(indentations + 4);
                         printf("Initializer: (none)\n".ptr);
                     }
-				}
+				},
 				Type_Choice => {
 					todo("Type_Choice not implemented (print_decl)", #FILE, #LINE);
-				}
+				},
                 Type_Custom_Decl => {
                     print_indentations(indentations + 2);
                     name_tok: *Token = var_decl_type.name;
@@ -2014,7 +2115,12 @@ print_block: proc(block: *Block_Node, indentations: i32) {
             Return_Node => {
                 print_indentations(indentations + 4);
 		 		printf("Return: \n".ptr);
-                print_expression(type_.expr, indentations + 6);
+                if type_.expr == 0 {
+                    print_indentations(indentations + 6);
+                    printf("(none)\n".ptr);
+                } else {
+                    print_expression(type_.expr, indentations + 6);
+                }
             }
 		 }
 	}	
