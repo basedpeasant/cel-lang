@@ -755,6 +755,7 @@ fn get_prec(ast: &Ast, op: TokenType) -> i32 {
         TokenType::CloseSquare | TokenType::OpenCurly | TokenType::CloseCurly => -1,
         _ => {
             println!("{:?}", op);
+            println!("{:?}", ast.get_current_token());
             panic!("Unknown Operator")
         }
     }
@@ -1504,7 +1505,10 @@ fn parse_block_body(ast: &mut Ast, scope: usize, root: bool) -> BlockNode {
                 ast.advance();
                 let subject = match lookup_var(&ast.scopes, block.scope, &subject_token.tok) {
                     Some(var) => var,
-                    None => panic!("Could not find \"{}\"", subject_token.tok)
+                    None => {
+                        println!("{:?}", subject_token);
+                        panic!("Could not find \"{}\"", subject_token.tok);
+                    }
                 };
                 let mut needs_deref = false;
                 let fields;
@@ -1534,6 +1538,7 @@ fn parse_block_body(ast: &mut Ast, scope: usize, root: bool) -> BlockNode {
                             Type::Custom(_attributes, custom_type) => {
                                 // check if actually a custom type or if its a choice type
                                 let r#type = get_ast_type(&ast.types, &custom_type.name.as_ref().unwrap().tok);
+                                println!("{:?}", custom_type);
                                 match r#type {
                                     Type::Choice(_attributes, choice_type) => {
                                         fields = choice_type.fields;

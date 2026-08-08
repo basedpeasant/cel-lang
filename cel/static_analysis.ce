@@ -92,6 +92,35 @@ lookup_name: proc(scopes: [+]Scope, current_scope: u32, name: string) -> *Variab
     }
 }
 
+// TODO: might be useless procedure - marked for removal
+// only for choice/structs rn
+// this is for getting the original type given only a variable name is provided
+get_type_definition_from_name: proc(s: *State, current_scope: u32, var_name: *Token) -> *Type {
+    ast: *Ast = s.ast;
+    scopes: [+]Scope = ast.scopes;
+    var_decl: *Variable_Decl_Node = lookup_name(scopes, current_scope, var_name.tok);
+    if var_decl == 0 {
+        return 0;
+    }
+    var_type: Type = var_decl.var_type;
+    match v := var_type {
+        Type_Builtin => {},
+        Type_Pointer => {},
+        Type_Proc => {},
+        Type_Array => {},
+        Type_Dynamic_Array => {},
+        Type_Choice => {},
+        Type_Custom_Decl => {
+            return lookup_type(s, v.name);
+        },
+        Type_Custom => {
+            return lookup_type(s, v.name);
+        },
+        Type_Unknown => {}
+    }
+    todo("Handle other types (maybe?)(this could also be an error)", #FILE, #LINE);
+}
+
 lookup_type: proc(s: *State, name: *Token) -> *Type {
     ast: *Ast = s.ast;
     types: [+]Type = ast.types;
@@ -379,6 +408,7 @@ sa_walk_var_decl: proc(s: *State, v: *Variable_Decl_Node) {
             match_expression(s, v.rhs);
         },
         Type_Unknown => {
+            // inference
             resolved_type: *Type = match_expression(s, v.rhs);
             t.resolved = true;
             t.type_ = resolved_type;
@@ -396,12 +426,142 @@ sa_walk_decl: proc(s: *State, _decl: *Decl_Node) {
     }
 }
 
+// this is specifically for the matchnodes btw (just avoiding duplications)
+sa_match_subject_inference: proc(s: *State, v: *Variable_Decl_Node) {
+    // Putting this here because otherwise would sa_walk_expression_statement_with_block
+    // function is going to be too long
+    subject_type_container: Type = v.var_type;
+    match subject_type := subject_type_container {
+        // TODO: better errors
+        Type_Builtin => { panic("unsupported here", #FILE, #LINE); },
+        Type_Pointer => { panic("unsupported here", #FILE, #LINE); },
+        Type_Proc => { panic("unsupported here", #FILE, #LINE); },
+        Type_Array => { panic("unsupported here", #FILE, #LINE); },
+        Type_Dynamic_Array => { panic("unsupported here", #FILE, #LINE); },
+        Type_Choice => { panic("unsupported here", #FILE, #LINE); },
+        Type_Custom_Decl => { panic("unsupported here", #FILE, #LINE); },
+        Type_Custom => { panic("unsupported here", #FILE, #LINE); },
+        Type_Unknown => { 
+            sa_walk_var_decl(s, v);
+        },
+    }
+}
+
+get_scope_from_id: proc(scopes: [+]Scope, id: u32) -> *Scope {
+    for i: i32 = 0; i < array_size(scopes); i = i + 1 {
+        scope: *Scope = &scopes[i];
+        if scope.id == id {
+            return scope;
+        }
+    }
+    return 0;
+}
+
+// assumption: provided type is known to be type_unknown
+get_type_unknown_inner: proc(type_unknown: *Type) -> *Type {
+    match t := type_unknown {
+        // TODO: better errors
+        Type_Builtin => { unreachable("FUNCTION 'get_type_unknown_inner' NOT MEANT TO BE USED WITH Type_Builtin ", #FILE, #LINE); },
+        Type_Pointer => { unreachable("FUNCTION 'get_type_unknown_inner' NOT MEANT TO BE USED WITH Type_Pointer ", #FILE, #LINE); },
+        Type_Proc => { unreachable("FUNCTION 'get_type_unknown_inner' NOT MEANT TO BE USED WITH Type_Proc ", #FILE, #LINE); },
+        Type_Array => { unreachable("FUNCTION 'get_type_unknown_inner' NOT MEANT TO BE USED WITH Type_Array ", #FILE, #LINE); },
+        Type_Dynamic_Array => { unreachable("FUNCTION 'get_type_unknown_inner' NOT MEANT TO BE USED WITH Type_Dynamic_Array ", #FILE, #LINE); },
+        Type_Choice => { unreachable("FUNCTION 'get_type_unknown_inner' NOT MEANT TO BE USED WITH Type_Choice ", #FILE, #LINE); },
+        Type_Custom_Decl => { unreachable("FUNCTION 'get_type_unknown_inner' NOT MEANT TO BE USED WITH Type_Custom_Decl ", #FILE, #LINE); },
+        Type_Custom => { unreachable("FUNCTION 'get_type_unknown_inner' NOT MEANT TO BE USED WITH Type_Custom ", #FILE, #LINE); },
+        Type_Unknown => { 
+            assert(t.resolved, "type in match subject has not been resolved successfully", #FILE, #LINE);
+            return t.type_;
+        },
+    }
+}
+
+// assumption: provided type is known to be type_choice
+get_type_choice_inner: proc(type_choice: *Type) -> *Type_Choice {
+    match t := type_choice {
+        Type_Builtin => { panic("Cannot get Type_Builtin here", #FILE, #LINE); },
+        Type_Pointer => { panic("Cannot get Type_Pointer here", #FILE, #LINE); },
+        Type_Proc => { panic("Cannot get Type_Proc here", #FILE, #LINE); },
+        Type_Array => { panic("Cannot get Type_Array here", #FILE, #LINE); },
+        Type_Dynamic_Array => { panic("Cannot get Type_Dynamic_Array here", #FILE, #LINE); },
+        Type_Choice => { 
+            return t;
+        },
+        Type_Custom_Decl => { 
+            panic("Type must be a choice", #FILE, #LINE); 
+        },
+        Type_Custom => { unreachable("Cannot get Type_Unknown here", #FILE, #LINE); },
+        Type_Unknown => { unreachable("Cannot get Type_Unknown here", #FILE, #LINE); },
+    }
+}
+
 sa_walk_expression_statement_with_block: proc(s: *State, es: *Expression_Statement_With_Block) {
+    ast: *Ast = s.ast;
+    scopes: [+]Scope = ast.scopes;
     match eswb := es {
+        // TODO:
         If_Node => {},
+        // TODO:
         For_Node => {},
         Match_Node => {
-            todo("static analysis for Match Node", #FILE, #LINE);
+            // What do we need to do?
+            // - We must compare each arm with the original choice type
+            //     - Get it from the subject
+            // - set tags?
+            local_block: *Block_Node = &eswb.blocks[0];
+            local_block_scope: *Scope = get_scope_from_id(scopes, local_block.scope);
+            // this is where the Match_Node was declared
+            match_node_scope_id: u32 = local_block_scope.parent_scope;
+            subject: *Variable_Decl_Node = eswb.subject;
+            sa_match_subject_inference(s, subject);
+
+            subject_type_def: *Type = 0;
+            // TODO: wondering if need to fail if cannot find the definition HERE or 
+            //       need to check if maybe it needs to happen somewhere else
+            subject_type_container: *Type = get_type_unknown_inner(&subject.var_type);
+            choice_type: *Type_Choice = 0;
+
+            //subject_type_container = lookup_type(s, symbol);
+            // TODO: fix this duplication mental illness later
+            // TODO: also probably needs to be unreachable instead of panic(?) + add better error messages
+            match subject_type := subject_type_container {
+                Type_Builtin => { panic("Cannot put Type_Builtin in a match statement", #FILE, #LINE); },
+                Type_Pointer => { panic("Cannot put Type_Pointer in a match statement", #FILE, #LINE); },
+                Type_Proc => { panic("Cannot put Type_Proc in a match statement", #FILE, #LINE); },
+                Type_Array => { panic("Cannot put Type_Array in a match statement", #FILE, #LINE); },
+                Type_Dynamic_Array => { panic("Cannot put Type_Dynamic_Array in a match statement", #FILE, #LINE); },
+                Type_Choice => { panic("Cannot put Type_Choice in a match statement", #FILE, #LINE); },
+                Type_Custom_Decl => { panic("Cannot put Type_Custom_Decl in a match statement", #FILE, #LINE); },
+                Type_Custom => { 
+                    subject_type_def = lookup_type(s, subject_type.name);
+                    choice_type = get_type_choice_inner(subject_type_def);
+                },
+                Type_Unknown => {
+                    unreachable("", #FILE, #LINE);
+                },
+            }
+            assert(choice_type != 0 && subject_type_def != 0, "", #FILE, #LINE);
+
+            // TODO: this needs to be changed once we introduce the "_" in match blocks
+            if array_size(eswb.fields) != array_size(choice_type.fields) {
+                // TODO: better error message probably
+                compile_error(eswb.token, "Match arms are not exhaustive, needs to cover all arms of the underlying Choice Type");
+            }
+            for i: i32 = 0; i < array_size(eswb.fields); i = i + 1 {
+                field: *Field = &eswb.fields[i];
+                field_name: *Token = field.name;
+                found: bool = false;
+                for j: i32 = 0; j < array_size(choice_type.fields); j = j + 1 {
+                    field_j: *Field = &choice_type.fields[j];
+                    field_j_name: *Token = field_j.name;
+                    if strcmp(field_j_name.tok, field_name.tok) {
+                        field.tag = field_j.tag;
+                        found = true;
+                    }
+                }
+                // TODO: needs a good error
+                assert(found, "Could not find arm in choice definition", #FILE, #LINE);
+            }
         }
     }
 }

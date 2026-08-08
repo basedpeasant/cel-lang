@@ -128,8 +128,8 @@ Variable_Node: type struct {
 //}
 
 Scope: type struct {
-	parent_scope: i32,
-	id: i32,
+	parent_scope: u32,
+	id: u32,
 	map: [+]Variable_Decl_Node
 }
 
