@@ -373,7 +373,7 @@ walk_proc: proc(g: *Generator, proc_: *Type_Proc) {
         }
     }
     if proc_.block != 0 {
-        walk_block(g, proc_.block);
+        walk_block(g, proc_.block, false);
     } else {
         // this should be a forward declaration
         sb_push_str(g.output, ";");
@@ -531,7 +531,6 @@ walk_expression: proc(g: *Generator, expr_: *Expression) {
                 sb_push(g.output, '{');
                 assert(array_size(e.exprs) == 1, "Choice type initializer MUST have only one value", #FILE, #LINE);
                 sb_push_str(g.output, "._tag = ");
-                printf("THIS IS A TEST: %d\n".ptr, e.tag);
                 sb_push_int(g.output, e.tag);
                 
                 sb_push(g.output, ',');
@@ -693,10 +692,10 @@ walk_if_node: proc(g: *Generator, if_node: *If_Node) {
         sb_push_str(g.output, "if (");
         walk_expression(g, if_node.condition);
         sb_push_str(g.output, ")\n");
-        walk_block(g, &if_node.block);
+        walk_block(g, &if_node.block, false);
     } else {
         assert(if_node.is_else, "non else part of the If Node cannot have a null condition", #FILE, #LINE);
-        walk_block(g, &if_node.block);
+        walk_block(g, &if_node.block, false);
     }
     if if_node.next != 0 {
         walk_if_node(g, if_node.next);
@@ -716,7 +715,7 @@ walk_for_node: proc(g: *Generator, for_node: *For_Node) {
         walk_expression(g, for_node.post);
 
         sb_push_str(g.output, ")\n");
-        walk_block(g, &for_node.block);
+        walk_block(g, &for_node.block, false);
     } else {
         sb_push_str(g.output, "while(");
         if for_node.condition == 0 {
@@ -725,8 +724,53 @@ walk_for_node: proc(g: *Generator, for_node: *For_Node) {
             walk_expression(g, for_node.condition);
         }
         sb_push_str(g.output, ")\n");
-        walk_block(g, &for_node.block);
+        walk_block(g, &for_node.block, false);
     }
+}
+
+walk_match_node: proc(g: *Generator, m: *Match_Node) {
+    //todo("implement codegen for match blocks", #FILE, #LINE);
+    subject: *Variable_Decl_Node = m.subject;
+    subject_symbol: *Token = subject.symbol;
+
+    sb_push_str(g.output, "switch(");
+    walk_expression(g, subject.rhs);
+    // sb_push_str(g.output, subject_symbol.tok);
+    // TODO: consider the case where you need to use a reference because the type is
+    //       not a pointer since we DO NOT WANT to create a copy but use a reference 
+    sb_push_str(g.output, "._tag) {\n");
+    for i: i32 = 0; i < array_size(m.blocks); i = i + 1 {
+        field: *Field = &m.fields[i];
+        field_name: *Token = field.name;
+        output_indentations(g);
+        sb_push_str(g.output, "case ");
+        sb_push_int(g.output, field.tag);
+        sb_push_str(g.output, ": {\n");
+
+        g.indentation_level = g.indentation_level + 1;
+        output_indentations(g);
+        // TODO: refer to above todo lol (very imp.)
+        sb_push_str(g.output, field_name.tok);
+        sb_push_str(g.output, " ");
+        sb_push_str(g.output, subject_symbol.tok);
+        sb_push_str(g.output, "= ");
+        walk_expression(g, subject.rhs);
+        sb_push_str(g.output, "._");
+        sb_push_int(g.output, field.tag);
+        sb_push_str(g.output, ";\n");
+        g.indentation_level = g.indentation_level - 1;
+
+        walk_block(g, &m.blocks[i], true);
+        g.indentation_level = g.indentation_level + 1;
+        output_indentations(g);
+        sb_push_str(g.output, "break;\n");
+        g.indentation_level = g.indentation_level - 1;
+        output_indentations(g);
+        sb_push_str(g.output, "}\n");
+    }
+    output_indentations(g);
+    sb_push_str(g.output, "}\n");
+    // TODO: consider adding "default: (?)"
 }
 
 walk_expression_with_block: proc(g: *Generator, expr_block_: *Expression_Statement_With_Block) {
@@ -737,6 +781,9 @@ walk_expression_with_block: proc(g: *Generator, expr_block_: *Expression_Stateme
         },
         For_Node => {
             walk_for_node(g, e_block);
+        },
+        Match_Node => {
+            walk_match_node(g, e_block);
         }
     }
 }
@@ -773,8 +820,8 @@ walk_statement: proc(g: *Generator, s: *Statement) {
     }
 }
 
-walk_block: proc(g: *Generator, block: *Block_Node) {
-    if block.scope != 0 {
+walk_block: proc(g: *Generator, block: *Block_Node, skip_braces: bool) {
+    if block.scope != 0 && !skip_braces {
         output_indentations(g);
         sb_push_str(g.output, "{\n");
     }
@@ -794,7 +841,7 @@ walk_block: proc(g: *Generator, block: *Block_Node) {
     }
 
     g.indentation_level = g.indentation_level - 1;
-    if block.scope != 0 {
+    if block.scope != 0 && !skip_braces {
         output_indentations(g);
         sb_push_str(g.output, "}\n");
     }
@@ -812,7 +859,7 @@ codegen_start: proc(ast: *Ast) {
     write_start(g);
 
     //TODO: walk root block
-    walk_block(g, &ast.root_block);
+    walk_block(g, &ast.root_block, false);
 
     write_string_builder_to_file(sb, "out.c");
     compile(0);

@@ -540,7 +540,10 @@ sa_walk_expression_statement_with_block: proc(s: *State, es: *Expression_Stateme
                     unreachable("", #FILE, #LINE);
                 },
             }
+
+            // TODO: better error message probably (do we even need this?)
             assert(choice_type != 0 && subject_type_def != 0, "", #FILE, #LINE);
+            assert(array_size(eswb.blocks) == array_size(choice_type.fields), "", #FILE, #LINE);
 
             // TODO: this needs to be changed once we introduce the "_" in match blocks
             if array_size(eswb.fields) != array_size(choice_type.fields) {
