@@ -2,7 +2,7 @@
 Generator: type struct {
     output: *String_Builder,
     current_scope: u32,
-    scopes: [+]u32,
+    scopes: [+]Scope,
     procs: [+]Proc_Header_Node,
     strings: [+]String_Literal,
     types: [+]Type,
@@ -324,7 +324,13 @@ get_c_type: proc(type__: Type) -> string {
             todo("get_c_type (Type_Array)", #FILE, #LINE);
         },
         Type_Dynamic_Array => {
-            todo("get_c_type (Type_Dynamic_Array)", #FILE, #LINE);
+            array_type: string = get_c_type(t.array_type[0]);
+            sb: String_Builder;
+            sb_push_str(&sb, array_type);
+            sb_push(&sb, '*');
+            ret: string = sb_to_string(&sb);
+            sb_free(&sb);
+            return ret;
         },
         Type_Choice => {
             todo("get_c_type (Type_Choice)", #FILE, #LINE);
@@ -445,7 +451,8 @@ walk_expression: proc(g: *Generator, expr_: *Expression) {
             } else if e.op == OP_ASSIGN {
                 sb_push_str(g.output, " = ");
             } else if e.op == OP_ACCESS {
-                sb_push_str(g.output, ".");
+                if e.needs_ptr_deref { sb_push_str(g.output, "->"); }
+                else           { sb_push_str(g.output, ".");  }
                 //TODO: this looks right actually not sure why I put this as unreachable
                 // unreachable("Access operation should be handled elsewhere", #FILE, #LINE);
             } else if e.op == OP_ARRAY_INDEX {
@@ -592,6 +599,7 @@ walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
         },
         Type_Array => {
             // TODO: cannot dereference in any other way right now 
+            // TODO: shouldn't this be partially done in get_c_type instead of here?
             c_type_str: string = get_c_type(t.array_type[0]);
             sb_push_str(g.output, c_type_str);
             sb_push(g.output, ' ');
@@ -599,7 +607,9 @@ walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
             size_expr = t.size;
         },
         Type_Dynamic_Array => {
-            todo("implement walk for Type_Dynamic_Array", #FILE, #LINE);
+            c_type_str: string = get_c_type(var_type);
+            sb_push_str(g.output, c_type_str);
+            sb_push(g.output, ' ');
         },
         Type_Choice => {
             todo("implement walk for Type_Choice", #FILE, #LINE);
@@ -738,7 +748,11 @@ walk_match_node: proc(g: *Generator, m: *Match_Node) {
     // sb_push_str(g.output, subject_symbol.tok);
     // TODO: consider the case where you need to use a reference because the type is
     //       not a pointer since we DO NOT WANT to create a copy but use a reference 
-    sb_push_str(g.output, "._tag) {\n");
+    if m.needs_deref {
+        sb_push_str(g.output, "->_tag) {\n");
+    } else {
+        sb_push_str(g.output, "._tag) {\n");
+    }
     for i: i32 = 0; i < array_size(m.blocks); i = i + 1 {
         field: *Field = &m.fields[i];
         field_name: *Token = field.name;
@@ -746,19 +760,6 @@ walk_match_node: proc(g: *Generator, m: *Match_Node) {
         sb_push_str(g.output, "case ");
         sb_push_int(g.output, field.tag);
         sb_push_str(g.output, ": {\n");
-
-        g.indentation_level = g.indentation_level + 1;
-        output_indentations(g);
-        // TODO: refer to above todo lol (very imp.)
-        sb_push_str(g.output, field_name.tok);
-        sb_push_str(g.output, " ");
-        sb_push_str(g.output, subject_symbol.tok);
-        sb_push_str(g.output, "= ");
-        walk_expression(g, subject.rhs);
-        sb_push_str(g.output, "._");
-        sb_push_int(g.output, field.tag);
-        sb_push_str(g.output, ";\n");
-        g.indentation_level = g.indentation_level - 1;
 
         walk_block(g, &m.blocks[i], true);
         g.indentation_level = g.indentation_level + 1;
@@ -855,6 +856,7 @@ codegen_start: proc(ast: *Ast) {
     g.indentation_level = 0;
     g.strings = ast.strings;
     g.types = ast.types;
+    g.scopes = ast.scopes;
     
     write_start(g);
 

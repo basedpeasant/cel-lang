@@ -119,7 +119,12 @@ Variable_Decl_Node: type struct {
 }
 
 Variable_Node: type struct {
-    symbol: *Token, 
+    symbol: *Token,
+    // NOTE: this is jsut for match construction purposes
+    //       since the tag is not accessible we have to skip the check 
+    //       for it's token to see if it exists in the type when checking
+    //       member access
+    skip_check: bool
 }
 
 //VarDecl_Map: type struct {
@@ -174,7 +179,9 @@ Unary_Node: type struct {
 Binary_Node: type struct {
     op: i32,
     lhs: *Expression,
-    rhs: *Expression
+    rhs: *Expression,
+    // this is specifically for handling member access
+    needs_ptr_deref: bool
 }
 
 Call_Node: type struct {
@@ -249,11 +256,16 @@ Expression_Statement_With_Block: type choice {
 	Match_Node,
 }
 
+// literally just exists to take up space in the block statement list
+Reserve_Statement: type struct {
+    _dummy: i32
+}
+
 Expression_Statement: type choice {
 	// ReturnNode,
 	Expression,
 	// DeferNode,
-	Expression_Statement_With_Block
+	Expression_Statement_With_Block,
 }
 
 Proc_Header_Node: type struct {
@@ -285,6 +297,7 @@ Statement: type choice {
     Return_Node,
     Continue_Node,
     Break_Node,
+    Reserve_Statement
 }
 
 Ast: type struct {
@@ -604,7 +617,7 @@ extract_type: proc(ast: *Ast) -> Type {
         proc_block_alloc: *Block_Node = 0;
         if current_token.tt == TK_OPEN_CURLY {
             advance(ast);
-            proc_block: Block_Node = create_block(ast, false, ast.current_scope);
+            proc_block: Block_Node = create_block(ast, false, ast.current_scope, 0);
             proc_block_alloc = calloc(1, sizeof(Block_Node));
             memcpy(proc_block_alloc, &proc_block, sizeof(Block_Node));
             ast_match(ast, TK_CLOSE_CURLY, #FILE, #LINE);
@@ -949,7 +962,7 @@ parse_primary: proc(ast: *Ast, scope: u32, in_if: bool) -> Expression {
             ret: Expression = Expression{ custom };
             return ret;
         } else if peek.tt == TK_OPEN_SQUARE {
-            variable: Variable_Node = Variable_Node{ get_current_token(ast) };
+            variable: Variable_Node = Variable_Node{ get_current_token(ast), false };
             base_tmp: Expression = Expression { variable };
             base_alloc: *Expression = calloc(1, sizeof(Expression));
             memcpy(base_alloc, &base_tmp, sizeof(Expression));
@@ -970,7 +983,7 @@ parse_primary: proc(ast: *Ast, scope: u32, in_if: bool) -> Expression {
         } else {
             // variables
             print_token(get_current_token(ast));
-            variable: Variable_Node = Variable_Node{ get_current_token(ast) };
+            variable: Variable_Node = Variable_Node{ get_current_token(ast), false };
             ret: Expression = Expression{ variable };
             advance(ast);
             tok: *Token = get_current_token(ast);
@@ -1240,7 +1253,7 @@ ast_create_binary: proc(op: i32, lhs: Expression, rhs: Expression) -> Binary_Nod
     memcpy(rhs_alloc, &rhs, sizeof(Expression));
     lhs_alloc._tag = get_expr_tag(&lhs);
     rhs_alloc._tag = get_expr_tag(&rhs);
-    ret: Binary_Node = Binary_Node{op, lhs_alloc, rhs_alloc};
+    ret: Binary_Node = Binary_Node{op, lhs_alloc, rhs_alloc, false}; // the needs_ptr_deref will be set in static analysis 
     return ret;
 }
 
@@ -1309,7 +1322,7 @@ ast_create_for: proc(ast: *Ast, scope: u32) -> For_Node {
     if current_token.tt == TK_OPEN_CURLY {
         // forever loop
         advance(ast);
-        block: Block_Node = create_block(ast, false, scope);
+        block: Block_Node = create_block(ast, false, scope, 0);
         for_node: For_Node = For_Node{ block, is_classic_for, init, expr, post };
         return for_node;
     }
@@ -1341,7 +1354,7 @@ ast_create_for: proc(ast: *Ast, scope: u32) -> For_Node {
     ast_match(ast, TK_OPEN_CURLY, #FILE, #LINE);
     advance(ast);
 
-    block: Block_Node = create_block(ast, false, for_scope);
+    block: Block_Node = create_block(ast, false, for_scope, 0);
     for_node: For_Node = For_Node{ block, is_classic_for, init, expr, post };
     return for_node;
 }
@@ -1377,7 +1390,7 @@ ast_create_if: proc(ast: *Ast, scope: u32) -> If_Node {
     }
     ast_match(ast, TK_OPEN_CURLY, #FILE, #LINE);
     advance(ast);
-    if_block: Block_Node = create_block(ast, false, scope);
+    if_block: Block_Node = create_block(ast, false, scope, 0);
     ast_match(ast, TK_CLOSE_CURLY, #FILE, #LINE);
     peek = get_peek(ast);
     next: *If_Node = 0;
@@ -1721,8 +1734,8 @@ create_statement: proc(ast: *Ast, scope: u32) -> *Statement {
                 // TODO: handle cases where theres only one statement
                 ast_match(ast, TK_OPEN_CURLY, #FILE, #LINE);
                 advance(ast);
-                // TODO: put the vardecl into the tihs block
-                block: Block_Node = create_block(ast, false, scope);
+                // we need to reserve 1 so we can put an additional variable declaration in each block
+                block: Block_Node = create_block(ast, false, scope, 1);
                 array_append(blocks, block);
                 save: *Token = get_current_token(ast); // just for the comma diagnostic
                 ast_match(ast, TK_CLOSE_CURLY, #FILE, #LINE);
@@ -1752,13 +1765,21 @@ create_statement: proc(ast: *Ast, scope: u32) -> *Statement {
     return stmt_ret;
 }
 
-create_block: proc(ast: *Ast, root: bool, parent_scope: u32) -> Block_Node {
+// reserve is introduced so we can add statements after the call at the beginning of the block
+create_block: proc(ast: *Ast, root: bool, parent_scope: u32, reserve: u32) -> Block_Node {
 	block: Block_Node;
 	block.statements = array_new(Statement);
 	block.scope = create_new_scope(ast, parent_scope);
 	ast.current_scope = block.scope;
 
 	defers: [+]Statement; // TODO: work on
+
+    for i: i32 = 0; i < reserve; i = i + 1 {
+        reserve: Reserve_Statement = Reserve_Statement{0};
+        stmt: Statement = Statement{ reserve };
+        array_append(block.statements, stmt);
+    }
+
 	for true {
 		current_token: *Token = get_current_token(ast);
 		if current_token.tt == TK_CLOSE_CURLY {
@@ -2228,7 +2249,7 @@ ast_start: proc(tokens: [+]Token) -> Ast {
 	ast.types = array_new(Type);
     ast.procs = array_new(Proc_Header_Node);
 	ast.strings = array_new(String_Literal);
-	ast.root_block = create_block(&ast, true, 0 - 1);
+	ast.root_block = create_block(&ast, true, 0 - 1, 0);
 	
     return ast;
 }

@@ -88,7 +88,7 @@ lookup_name: proc(scopes: [+]Scope, current_scope: u32, name: string) -> *Variab
     if current_scope == 0 {
         return 0;
     } else {
-        lookup_name(scopes, scope.parent_scope, name);
+        return lookup_name(scopes, scope.parent_scope, name);
     }
 }
 
@@ -292,6 +292,16 @@ check_types: proc(t1: *Type, t2: *Type) -> bool {
     return false;
 }
 
+construct_type_custom: proc(name: *Token) -> *Type {
+    // NOTE: this does not lookup the name, this should be done before calling this function
+    // ASSUMPTION: type name has already been checked to have a declaration
+    ret_inner: Type_Custom = Type_Custom{ name, 0 };
+    ret: *Type = calloc(1, sizeof(Type));
+    ret_tmp: Type = Type{ ret_inner };
+    memcpy(ret, &ret_tmp, sizeof(Type));
+    return ret;
+}
+
 match_expression: proc(s: *State, _expr: *Expression) -> *Type {
     // TODO/NOTE: Have to do this because of bug
     expr: *Expression = _expr;
@@ -303,6 +313,23 @@ match_expression: proc(s: *State, _expr: *Expression) -> *Type {
             // lhs_type: *Type = match_expression(s, e.lhs);
             // rhs_type: *Type = match_expression(s, e.rhs);
             // res: bool = check_types(lhs_type, rhs_type);
+            // handling the ptr deref for member access
+            lhs_type: *Type = match_expression(s, e.lhs);
+            if e.op == OP_ACCESS && lhs_type != 0 {
+                match bt := lhs_type {
+                    Type_Pointer => { e.needs_ptr_deref = true; },
+                    Type_Builtin => {},
+                    Type_Proc => {},
+                    Type_Array => {},
+                    Type_Dynamic_Array => {},
+                    Type_Choice => {},
+                    Type_Custom_Decl => {},
+                    Type_Custom => {},
+                    Type_Unknown => {},
+                }
+            }
+            match_expression(s, e.rhs);
+            return 0;
         },
         Number_Node => { 
             // todo("", #FILE, #LINE);
@@ -313,6 +340,9 @@ match_expression: proc(s: *State, _expr: *Expression) -> *Type {
             name_tok: *Token = e.symbol;
             name: string = name_tok.tok;
             var_decl: *Variable_Decl_Node = lookup_name(ast.scopes, ast.current_scope, name);
+            if var_decl == 0 {
+                return 0;
+            }
             return &var_decl.var_type;
         },
         Call_Node => { 
@@ -322,6 +352,11 @@ match_expression: proc(s: *State, _expr: *Expression) -> *Type {
             var_decl: *Variable_Decl_Node = lookup_name(ast.scopes, ast.current_scope, name);
             builtin: *Type = get_builtin_proc_type(name);
             if builtin != 0 {
+                // need to walkthrough all the args
+                for i: i32 = 0; i < array_size(e.args); i = i + 1 {
+                    expr: *Expression = &e.args[i];
+                    match_expression(s, expr);
+                }
                 return builtin;
             }
             if var_decl == 0 {
@@ -332,6 +367,7 @@ match_expression: proc(s: *State, _expr: *Expression) -> *Type {
             if ret_type != 0 {
                 // TODO: need to add the line info etc
                 // Sample from Go: ./main.go:10:2: declared and not used: a
+                // TODO: need to change this to support the new compile format in @error
                 filename: string = name_tok.filename;
                 printf("./%s:%d:%d: WARNING: result for call '%s' is not used\n".ptr, 
                     filename.ptr, 
@@ -340,6 +376,13 @@ match_expression: proc(s: *State, _expr: *Expression) -> *Type {
                     name.ptr);
                 // NOTE: this is not correct actually
             }
+
+            // need to walkthrough all the args
+            for i: i32 = 0; i < array_size(e.args); i = i + 1 {
+                expr: *Expression = &e.args[i];
+                match_expression(s, expr);
+            }
+
             return ret_type;
         },
         String_Literal => { 
@@ -354,6 +397,11 @@ match_expression: proc(s: *State, _expr: *Expression) -> *Type {
         },
         Struct_Init_Node => { 
             type_def: *Type = lookup_type(s, e.name);
+            if type_def == 0 {
+                // NOTE: this is unreachable because lookup_type will panic
+                //       but we should probably change that to return 0 instead
+                unreachable("", #FILE, #LINE);
+            }
             match t := type_def {
                 Type_Builtin => {},
                 Type_Pointer => {},
@@ -378,12 +426,51 @@ match_expression: proc(s: *State, _expr: *Expression) -> *Type {
                 Type_Custom => {},
                 Type_Unknown => {},
             }
+            ret: *Type = construct_type_custom(e.name); 
+            return ret;
             //todo("", #FILE, #LINE);
         },
         Array_Literal => { 
             todo("", #FILE, #LINE);
         },
     } 
+}
+
+sa_find_custom_type_def: proc(s: *State, name: *Token) -> *Type {
+    ast: *Ast = s.ast;
+    types: [+]Type = ast.types;
+
+    // TODO:
+    for i: i32 = 0; i < array_size(types); i = i + 1 {
+        t_: *Type = &types[i];
+        match t := t_ {
+            Type_Builtin => {},
+            Type_Pointer => {
+                todo("implement for pointers", #FILE, #LINE);
+            },
+            Type_Proc => {
+                todo("implement for proc", #FILE, #LINE);
+            },
+            Type_Array => {
+                todo("implement for array", #FILE, #LINE);
+            },
+            Type_Dynamic_Array => {
+                todo("implement for dynamic arrays", #FILE, #LINE);
+            },
+            Type_Choice => {
+                todo("implement for choice", #FILE, #LINE);
+            },
+            Type_Custom_Decl => {
+                panic("unexpected Type_Custom_Decl", #FILE, #LINE);
+            },
+            Type_Custom => {
+                todo("implement for custom", #FILE, #LINE);
+            },
+            Type_Unknown => {
+                panic("Unexpected Type_Unknown", #FILE, #LINE);
+            }
+        }
+    }
 }
 
 sa_walk_var_decl: proc(s: *State, v: *Variable_Decl_Node) {
@@ -400,7 +487,9 @@ sa_walk_var_decl: proc(s: *State, v: *Variable_Decl_Node) {
             }
         },
         Type_Array => {},
-        Type_Dynamic_Array => {},
+        Type_Dynamic_Array => {
+            // todo("static analysis for dynamic arrays", #FILE, #LINE);
+        },
         Type_Choice => {},
         Type_Custom_Decl => {},
         Type_Custom => {
@@ -410,9 +499,15 @@ sa_walk_var_decl: proc(s: *State, v: *Variable_Decl_Node) {
         Type_Unknown => {
             // inference
             resolved_type: *Type = match_expression(s, v.rhs);
+            if resolved_type == 0 {
+                panic("KEK", #FILE, #LINE);
+            }
             t.resolved = true;
             t.type_ = resolved_type;
         }
+    }
+    if v.rhs != 0 {
+        match_expression(s, v.rhs);
     }
 }
 
@@ -495,6 +590,193 @@ get_type_choice_inner: proc(type_choice: *Type) -> *Type_Choice {
     }
 }
 
+// NOTE THIS IS NOT FOR GETTING THE DECLARATION, this is simply to get the inner custom type
+get_custom_type_from_pointer_inner: proc(type_pointer: *Type_Pointer) -> *Type_Custom {
+    t_inner: *Type = type_pointer.inner;
+
+    match t := t_inner {
+        Type_Builtin => { panic("Cannot get Type_Builtin here", #FILE, #LINE); },
+        Type_Pointer => { panic("Cannot get Type_Pointer here", #FILE, #LINE); },
+        Type_Proc => { panic("Cannot get Type_Proc here", #FILE, #LINE); },
+        Type_Array => { panic("Cannot get Type_Array here", #FILE, #LINE); },
+        Type_Dynamic_Array => { panic("Cannot get Type_Dynamic_Array here", #FILE, #LINE); },
+        Type_Choice => { 
+            panic("Type must be a custom type (not a type declaration)", #FILE, #LINE); 
+        },
+        Type_Custom_Decl => { 
+            panic("Type must be a custom type (not a type declaration)", #FILE, #LINE); 
+        },
+        Type_Custom => { 
+            return t;
+        },
+        Type_Unknown => { unreachable("Cannot get Type_Unknown here", #FILE, #LINE); },
+    }
+
+}
+
+get_choice_type_from_pointer_inner: proc(type_pointer: *Type_Pointer) -> *Type_Choice {
+    t_inner: *Type = type_pointer.inner;
+
+    match t := t_inner {
+        Type_Builtin => { panic("Cannot get Type_Builtin here", #FILE, #LINE); },
+        Type_Pointer => { panic("Cannot get Type_Pointer here", #FILE, #LINE); },
+        Type_Proc => { panic("Cannot get Type_Proc here", #FILE, #LINE); },
+        Type_Array => { panic("Cannot get Type_Array here", #FILE, #LINE); },
+        Type_Dynamic_Array => { panic("Cannot get Type_Dynamic_Array here", #FILE, #LINE); },
+        Type_Choice => { 
+            return t;
+        },
+        Type_Custom_Decl => { 
+            panic("Type must be a choice", #FILE, #LINE); 
+        },
+        Type_Custom => { unreachable("Cannot get Type_Custom here", #FILE, #LINE); },
+        Type_Unknown => { unreachable("Cannot get Type_Unknown here", #FILE, #LINE); },
+    }
+
+}
+
+sa_check_custom_type_exists: proc(ast: *Ast, type_name: *Token) -> bool {
+    types: [+]Type = ast.types;
+    for i: i32 = 0; i < array_size(types); i = i + 1 {
+        type_declaration: *Type = &types[i];
+        match t_inner := type_declaration {
+            Type_Builtin => {
+                panic("Type should not be stored in the ast.types array as its not a user defined type", #FILE, #LINE);
+            },
+            Type_Pointer => {
+                panic("Type should not be stored in the ast.types array as its not a user defined type", #FILE, #LINE);
+            },
+            Type_Proc => {
+                panic("Type should not be stored in the ast.types array as its not a user defined type", #FILE, #LINE);
+            },
+            Type_Array => {
+                panic("Type should not be stored in the ast.types array as its not a user defined type", #FILE, #LINE);
+            },
+            Type_Dynamic_Array => {
+                panic("Type should not be stored in the ast.types array as its not a user defined type", #FILE, #LINE);
+            },
+            Type_Choice => {
+                type_name_str: string = type_name.tok;
+                t_inner_name: *Token = t_inner.name;
+                t_inner_name_str: string = t_inner_name.tok;
+                if strcmp(type_name_str, t_inner_name_str) {
+                    return true;
+                }
+            },
+            Type_Custom_Decl => {
+                type_name_str: string = type_name.tok;
+                t_inner_name: *Token = t_inner.name;
+                t_inner_name_str: string = t_inner_name.tok;
+                if strcmp(type_name_str, t_inner_name_str) {
+                    return true;
+                }
+            },
+            Type_Custom => {
+                panic("Type should not be stored in the ast.types array as its not a user defined type", #FILE, #LINE);
+            },
+            Type_Unknown => {
+                panic("Type should not be stored in the ast.types array as its not a user defined type", #FILE, #LINE);
+            }
+        }
+    }
+
+    return false; 
+}
+
+// Very hacky way of adding the variable declaration statement to each match block
+sa_create_match_statement_rhs: proc(var_decl: *Variable_Decl_Node, field: *Field, subject_rhs: *Expression, needs_deref: bool) {
+    // rhs: *Expression = 0;
+    // &akldlasd._X;
+
+    //   Variable Declaration:
+    // name: 'a'
+    // Initializer:
+    //   BinaryOp: .
+    //     lhs:
+    //       UnaryOp: &
+    //         expr:
+    //         ...(subject_rhs)
+    //     rhs:
+    //       Variable_Node (tag) 
+    // TODO: check deref shiza here
+    // lhs
+    lhs_tmp: Expression = subject_rhs[0];
+    lhs: *Expression = calloc(1, sizeof(Expression));
+    memcpy(lhs, &lhs_tmp, sizeof(Expression));
+
+    // rhs
+    sb: String_Builder;
+    sb_push(&sb, '_');
+    sb_push_int(&sb, field.tag);
+    tag_name: string = sb_to_string(&sb);
+    sb_free(&sb);
+    // we have to create the token for codegen purposes
+    tag_token_tmp: Token = create_token(0-1, 0-1, tag_name, "__BUILTIN__");
+    tag_token: *Token = calloc(1, sizeof(Token));
+    memcpy(tag_token, &tag_token_tmp, sizeof(Token));
+    tag: Variable_Node = Variable_Node{ tag_token, true };
+    rhs_tmp: Expression = Expression{ tag };
+    rhs: *Expression = calloc(1, sizeof(Expression));
+    memcpy(rhs, &rhs_tmp, sizeof(Expression));
+
+    bin: Binary_Node = Binary_Node{ OP_ACCESS, lhs, rhs, needs_deref };
+    bin_expr_tmp: Expression = Expression{ bin };
+    bin_expr: *Expression = calloc(1, sizeof(Expression));
+    memcpy(bin_expr, &bin_expr_tmp, sizeof(Expression));
+
+    unary: Unary_Node = Unary_Node{ OP_REFERENCE, bin_expr, 0 };
+
+    final_expr: *Expression = calloc(1, sizeof(Expression));
+    final_expr_tmp: Expression = Expression{ unary };
+    memcpy(final_expr, &final_expr_tmp, sizeof(Expression));
+    var_decl.rhs = final_expr;
+
+
+
+}
+
+sa_add_statement_to_match_blocks: proc(ast: *Ast, m: *Match_Node, choice_type: *Type_Choice) {
+    // assuming all the fields are custom declared types
+    // we have to check if their valid and get their respective declarations
+    subject: *Variable_Decl_Node = m.subject;
+    for i: i32 = 0; i < array_size(m.fields); i = i + 1 {
+        field: Field = m.fields[i];
+        current_block: *Block_Node = &m.blocks[i]; // TODO/NOTE: not sure if this should be i or tag
+        current_scope_id: u32 = current_block.scope; // TODO: add the variable to the scope
+        // TODO: do we even need this check? It'll error earlier if the arm type doesn't exist
+        exists: bool = sa_check_custom_type_exists(ast, field.name);
+        if !exists {
+            compile_error(field.name, "Undefined Type in Match arm");
+        }
+        // -----
+        var_type_custom: Type_Custom = Type_Custom{ field.name, 0 };
+        var_type: Type;
+        // the way in which we wrap this with a pointer feels very stupid
+        // var_type = Type{ var_type_custom };
+        inner: *Type = calloc(1, sizeof(Type));
+        inner_tmp: Type = Type{ var_type_custom };
+        memcpy(inner, &inner_tmp, sizeof(Type));
+        var_type_pointer: Type_Pointer = Type_Pointer{ inner };
+        // TODO: need to change this once switched to the cel compiler because
+        //       currently the rust compiler does not support struct initializers in 
+        //       expressions (lol)
+        tmp: Type = Type{ var_type_pointer };
+        var_type = tmp;
+
+        // rhs: &subject._X;
+        var_decl: Variable_Decl_Node = Variable_Decl_Node{ subject.symbol, 0, var_type, false };
+        sa_create_match_statement_rhs(&var_decl, &field, subject.rhs, m.needs_deref);
+        decl: Decl_Node = Decl_Node{ var_decl };
+        stmt_tmp: Statement = Statement{ decl };
+        stmt: *Statement = calloc(1, sizeof(Statement));
+        memcpy(stmt, &stmt_tmp, sizeof(Statement));
+        // TODO: assert they are really there (?)
+        current_block.statements[0] = stmt[0]; // THIS SHOULD BE WHERE THE RESERVE IS FOR MATCHES
+        scope: *Scope = get_scope_from_id(ast.scopes, current_scope_id);
+        array_append(scope.map, var_decl);
+    }
+}
+
 sa_walk_expression_statement_with_block: proc(s: *State, es: *Expression_Statement_With_Block) {
     ast: *Ast = s.ast;
     scopes: [+]Scope = ast.scopes;
@@ -522,11 +804,17 @@ sa_walk_expression_statement_with_block: proc(s: *State, es: *Expression_Stateme
             choice_type: *Type_Choice = 0;
 
             //subject_type_container = lookup_type(s, symbol);
+            // TODO: we need to potentially wrap the subject so its a pointer (?)
             // TODO: fix this duplication mental illness later
             // TODO: also probably needs to be unreachable instead of panic(?) + add better error messages
             match subject_type := subject_type_container {
                 Type_Builtin => { panic("Cannot put Type_Builtin in a match statement", #FILE, #LINE); },
-                Type_Pointer => { panic("Cannot put Type_Pointer in a match statement", #FILE, #LINE); },
+                Type_Pointer => {
+                    t: *Type_Custom = get_custom_type_from_pointer_inner(subject_type);
+                    subject_type_def = lookup_type(s, t.name);
+                    choice_type = get_type_choice_inner(subject_type_def);
+                    eswb.needs_deref = true;
+                },
                 Type_Proc => { panic("Cannot put Type_Proc in a match statement", #FILE, #LINE); },
                 Type_Array => { panic("Cannot put Type_Array in a match statement", #FILE, #LINE); },
                 Type_Dynamic_Array => { panic("Cannot put Type_Dynamic_Array in a match statement", #FILE, #LINE); },
@@ -562,8 +850,18 @@ sa_walk_expression_statement_with_block: proc(s: *State, es: *Expression_Stateme
                         found = true;
                     }
                 }
-                // TODO: needs a good error
-                assert(found, "Could not find arm in choice definition", #FILE, #LINE);
+                // TODO: needs a better error
+                if !found {
+                    compile_error(field_name, "Could not find arm in choice definition");
+                }
+            }
+
+            // TODO: add the statements here 
+            sa_add_statement_to_match_blocks(ast, eswb, choice_type);
+
+            // the blocks still need to be analyzed
+            for i: i32 = 0; i < array_size(eswb.blocks); i = i + 1 {
+                sa_walk_block(s, &eswb.blocks[i]);
             }
         }
     }
@@ -594,6 +892,9 @@ sa_walk_block: proc(s: *State, block: *Block_Node) {
             },
             Return_Node => {
                 // do nothing (for now)
+            },
+            Reserve_Statement => {
+                panic("Reserve_Statement should not be present in the blocknode during static analysis", #FILE, #LINE);
             }
         }
     }
