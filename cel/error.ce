@@ -96,12 +96,12 @@ report_error_at: proc(file: string, line_no: i32, col: i32, length: i32, msg: st
 
     sb: String_Builder;
 
-    // header: "\n<file>:<line>,<col>:\n"
+    // header: "\n<file>:<line>:<col>:\n"
     sb_push(&sb, '\n');
     sb_push_str(&sb, file);
     sb_push(&sb, ':');
     sb_push_int(&sb, line_no);
-    sb_push(&sb, ',');
+    sb_push(&sb, ':');
     sb_push_int(&sb, col + 1);
     sb_push(&sb, ':');
     sb_push(&sb, '\n');
