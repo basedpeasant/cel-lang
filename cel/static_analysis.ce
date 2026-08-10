@@ -492,10 +492,7 @@ sa_walk_var_decl: proc(s: *State, v: *Variable_Decl_Node) {
         },
         Type_Choice => {},
         Type_Custom_Decl => {},
-        Type_Custom => {
-            // todo("static analysis for custom types", #FILE, #LINE);
-            match_expression(s, v.rhs);
-        },
+        Type_Custom => {},
         Type_Unknown => {
             // inference
             resolved_type: *Type = match_expression(s, v.rhs);
