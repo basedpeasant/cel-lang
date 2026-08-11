@@ -165,10 +165,6 @@ write_start: proc(g: *Generator) {
     sb_push_str(g.output, "extern int sprintf(char* str, const char* format, ...);\n");
     sb_push_str(g.output, "void _start();\n");
     // TODO: remove once you can make your own structs
-    sb_push_str(g.output, "typedef struct {\n");
-    sb_push_str(g.output, "    int length;\n");
-    sb_push_str(g.output, "    const char* ptr;\n");
-    sb_push_str(g.output, "} string;\n");
     // sb_push_str(g.output, "#define breakpoint(dummy) __asm__(\"int3\")");
 
     cel_main_call: string;
@@ -275,6 +271,7 @@ output_indentations: proc(g: *Generator) {
 
 get_c_type: proc(type__: Type) -> string {
     type_: Type = type__; // NOTE/TODO: this is only here cus of a bug
+    // TODO: attributes
     match t := type_ {
         Type_Builtin => {
             if t.kind == TYPE_U8 {
@@ -571,6 +568,59 @@ walk_expression: proc(g: *Generator, expr_: *Expression) {
     }
 }
 
+get_attribute_string: proc(attribute: *Attribute) -> string {
+    if attribute.kind == ATTRIBUTE_EXTERN {
+        return "extern";
+    } else if attribute.kind == ATTRIBUTE_STATIC {
+        return "static";
+    } else if attribute.kind == ATTRIBUTE_CONST {
+        return "const";
+    } else {
+        unreachable("Unknown attribute supplied here (this should have failed earlier)", #FILE, #LINE);
+    }
+}
+
+walk_attributes: proc(g: *Generator, var_decl: *Variable_Decl_Node) {
+    var_type: *Type = &var_decl.var_type;
+    attributes: [+]Attribute = 0;
+
+    // TODO: seems very verbose but only way I can think of doing it rn 
+    match vt := var_type {
+        Type_Builtin => { 
+            attributes = vt.attributes; 
+        },
+        Type_Pointer => { 
+            attributes = vt.attributes;
+        },
+        Type_Proc => { 
+            attributes = vt.attributes;
+        },
+        Type_Array => { 
+            attributes = vt.attributes;
+        },
+        Type_Dynamic_Array => { 
+            attributes = vt.attributes;
+        },
+        Type_Choice => { todo("implement walk_attributes", #FILE, #LINE); },
+        Type_Custom_Decl => { todo("implement walk_attributes", #FILE, #LINE); },
+        Type_Custom => { 
+            attributes = vt.attributes;
+        },
+        Type_Unknown => { 
+            // TODO: skip for now but need to finish later
+        }
+    }
+
+    if attributes != 0 {
+        for i: i32 = 0; i < array_size(attributes); i = i + 1 {
+            attribute: Attribute = attributes[i];
+            attribute_string: string = get_attribute_string(&attribute);
+            sb_push_str(g.output, attribute_string);
+            sb_push(g.output, ' ');
+        }
+    }
+}
+
 walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
     var_type: Type = variable_decl.var_type;
     skip: bool = false;
@@ -579,6 +629,7 @@ walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
     is_arr: bool = false;
     is_type_custom: bool = false;
     size_expr: *Expression = 0;
+    walk_attributes(g, variable_decl);
 
     match t := var_type {
         Type_Builtin => {

@@ -18,7 +18,8 @@ TYPE_UNKNOWN:              u8 = 15; // FOR TYPE INFERENCE
 
 ATTRIBUTE_EXTERN: u8 = 1;
 ATTRIBUTE_STATIC: u8 = 2;
-ATTRIBUTE_UNKNOWN: u8 = 3;
+ATTRIBUTE_CONST: u8 = 3;
+ATTRIBUTE_UNKNOWN: u8 = 4;
 Attribute: type struct {
     kind: u8,
     //expr: Expression*
@@ -72,15 +73,18 @@ Type_Proc: type struct {
 
 Type_Array: type struct {
     size: *Expression,
-    array_type: *Type
+    array_type: *Type,
+    attributes: [+]Attribute
 }
 
 Type_Dynamic_Array: type struct {
     array_type: *Type,	
+    attributes: [+]Attribute
 }
 
 Type_Pointer: type struct {
 	inner: *Type,
+    attributes: [+]Attribute
 }
 
 Type: type choice {
@@ -531,9 +535,11 @@ extract_attributes: proc(ast: *Ast) -> [+]Attribute {
             } else if strcmp(current_token.tok, "static") {
                 tmp.kind = ATTRIBUTE_STATIC;
                 array_append(ret, tmp);
+            } else if strcmp(current_token.tok, "const") {
+                tmp.kind = ATTRIBUTE_CONST;
+                array_append(ret, tmp);
             } else {
-                printf("%s".ptr, current_token.tok);
-                panic("Attribute is not recognized", #FILE, #LINE);
+                compile_error(current_token, "Attribute is not recognized");
             }
             advance(ast);
         } else {
@@ -727,7 +733,7 @@ extract_type: proc(ast: *Ast) -> Type {
           inner_type: *Type = calloc(1, sizeof(Type));
           tmp: Type = extract_type(ast);
           memcpy(inner_type, &tmp, sizeof(Type));
-          ptr: Type_Pointer = Type_Pointer{ inner_type };
+          ptr: Type_Pointer = Type_Pointer{ inner_type, array_new(Attribute) };
           ret: Type = Type{ ptr };
           return ret;
 	} else if current_token.tt == TK_OPEN_SQUARE {
@@ -741,7 +747,7 @@ extract_type: proc(ast: *Ast) -> Type {
             array_type_tmp: Type = extract_type(ast);
             array_type: *Type = calloc(1, sizeof(Type));
             memcpy(array_type, &array_type_tmp, sizeof(Type));
-            array: Type_Dynamic_Array = Type_Array{ array_type };
+            array: Type_Dynamic_Array = Type_Array{ array_type, array_new(Attribute) };
             ret: Type = Type{ array };
             return ret;
         } else if current_token.tt == TK_CLOSE_SQUARE {
@@ -756,7 +762,7 @@ extract_type: proc(ast: *Ast) -> Type {
             array_type_tmp: Type = extract_type(ast);
             array_type: *Type = calloc(1, sizeof(Type));
             memcpy(array_type, &array_type_tmp, sizeof(Type));
-            array: Type_Array = Type_Array{ size, array_type };
+            array: Type_Array = Type_Array{ size, array_type, array_new(Attribute) };
             ret: Type = Type{ array };
             return ret;
         }
@@ -769,11 +775,11 @@ extract_type: proc(ast: *Ast) -> Type {
         type_: Type = extract_type(ast);
         match t := type_ {
 			Type_Builtin => { todo("(Builtin) not implemented attributes for types outside of proc", #FILE, #LINE); },
-			Type_Pointer => { todo("(Pointer) not implemented attributes for types outside of proc", #FILE, #LINE); },
+			Type_Pointer => { 
+                t.attributes = attributes;
+            },
 			Type_Proc => {
-                for i: i32 = 0; i < array_size(attributes); i = i + 1 {
-                    array_append(t.attributes, attributes[i]);
-                }
+                t.attributes = attributes;
 			},
 			Type_Array => { todo("(Array) not implemented attributes for types outside of proc", #FILE, #LINE); },
 			Type_Dynamic_Array => { todo("(Dynamic_Array) not implemented attributes for types outside of proc", #FILE, #LINE); },
@@ -2238,6 +2244,7 @@ expand_includes: proc(tokens: [+]Token, base_filename: string) -> [+]Token {
 
             full_path: string = resolve_include_path(base_filename, filepath_str);
             src: string = read_file_to_string(full_path);
+            register_source(filepath_str, src);
             child_tokens: [+]Token = tokenize(&src, filepath_str);
             expanded: [+]Token = expand_includes(child_tokens, full_path);
 

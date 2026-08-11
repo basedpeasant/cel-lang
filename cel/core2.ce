@@ -19,3 +19,38 @@ execvp: @extern proc(file: *u8, argv: **u8) -> i32;
 wait3: @extern proc(wstatus: *i32, options: i32, rusage: void_ptr) -> i32;
 wait4: @extern proc(pid: i32, wstatus: *i32, options: i32, rusage: void_ptr) -> i32;
 
+O_RDONLY: i32 = 0;
+O_WRONLY: i32 = 1;
+O_CREAT: i32 = 64;
+O_TRUNC: i32 = 512;
+
+string: type struct {
+	length: u32,
+	ptr: @const *u8
+}
+
+unreachable: proc(msg: string, file: string = #FILE, line: u32 = #LINE) {
+    //NOTE: this __FILE__ and __LINE__ don't make sense here
+	printf("%s:%d: UNREACHABLE: %s\n".ptr, file.ptr, line, msg.ptr);
+	exit(101);
+}
+
+todo: proc(msg: string, file: string = #FILE, line: u32 = #LINE) {
+	//NOTE: this __FILE__ and __LINE__ don't make sense here
+	printf("%s:%d: TODO: %s\n".ptr, file.ptr, line, msg.ptr);
+	exit(101);
+}
+
+panic: proc(msg: string, file: string = #FILE, line: u32 = #LINE) {
+	//NOTE: this __FILE__ and __LINE__ don't make sense here
+	printf("%s:%d: panic: %s\n".ptr, file.ptr, line, msg.ptr);
+	exit(101);
+}
+
+assert: proc(condition: bool, msg: string, file: string = #FILE, line: u32 = #LINE) {
+    // TODO: print assertion condition maybe?
+    if !condition {
+        printf("%s:%d: assertion failed: %s\n".ptr, file.ptr, line, msg.ptr);
+        exit(101);
+    }
+}

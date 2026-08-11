@@ -2,11 +2,31 @@
 isatty: @extern proc(fd: i32) -> i32;
 getenv: @extern proc(name: *u8) -> *u8;
 
-// Set in main.ce right after read_file_to_string so that
-// report_error_at can just refer to the problem line instead of
-// re-reading the file from disk on every error.
-// TODO: this is obviously a very silly way of doing it
-current_src: string;
+// Registry of every source file that gets read, keyed by the filename that
+// its tokens are stamped with. Populated from main.ce and expand_includes so
+// that report_error_at can look up the problem line instead of re-reading the
+// file from disk on every error.
+MAX_SOURCE_FILES: i32 = 64;
+source_filenames: [64]string;
+source_contents: [64]string;
+source_files_count: i32 = 0;
+
+register_source: proc(filename: string, src: string) {
+    assert(source_files_count < MAX_SOURCE_FILES, "too many source files", #FILE, #LINE);
+    source_filenames[source_files_count] = filename;
+    source_contents[source_files_count] = src;
+    source_files_count = source_files_count + 1;
+}
+
+get_src: proc(filename: string) -> string {
+    for i: i32 = 0; i < source_files_count; i = i + 1 {
+        if strcmp(source_filenames[i], filename) {
+            return source_contents[i];
+        }
+    }
+    ret: string = string{ 0, 0 };
+    return ret;
+}
 
 color_enabled: proc() -> bool {
     tty: i32 = isatty(1);
@@ -31,8 +51,7 @@ sb_push_range: proc(sb: *String_Builder, src: string, from: i32, to: i32) {
 
 // Find the byte range [start, end) of the line (index is 1-based btw).
 // Returns an empty string if the line does not exist.
-get_line: proc(line_number: i32) -> string {
-    src: string = current_src;
+get_line: proc(src: string, line_number: i32) -> string {
     current: i32 = 1;
     start: i32 = 0;
     src_len: i32 = src.length;
@@ -87,6 +106,7 @@ count_digits: proc(n: i32) -> i32 {
 // in red. Does not exit.
 report_error_at: proc(file: string, line_no: i32, col: i32, length: i32, msg: string) {
     on: bool = color_enabled(0);
+    src: string = get_src(file);
 
     start: i32 = col;
     if start < 0 {
@@ -120,7 +140,7 @@ report_error_at: proc(file: string, line_no: i32, col: i32, length: i32, msg: st
     sb_push(&sb, '\n');
 
     // context window: show ERROR_CONTEXT lines above and below the error line
-    error_line: string = get_line(line_no);
+    error_line: string = get_line(src, line_no);
     if error_line.ptr == 0 {
         out: string = sb_to_string(&sb);
         printf("%s".ptr, out.ptr);
@@ -148,7 +168,7 @@ report_error_at: proc(file: string, line_no: i32, col: i32, length: i32, msg: st
 
     n: i32 = first_line;
     for n <= last_line {
-        ctx_line: string = get_line(n);
+        ctx_line: string = get_line(src, n);
         if ctx_line.ptr == 0 {
             break;
         }
