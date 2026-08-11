@@ -20,6 +20,16 @@ Error: type struct {
     err: string,
 }
 
+unknown_type_name_error: proc(name: *Token) {
+    sb: String_Builder;
+    name_str: string = name.tok;
+    sb_push_str(&sb, "Unknown type name '");
+    sb_push_str(&sb, name_str);
+    sb_push_str(&sb, "'");
+    msg: string = sb_to_string(&sb);
+    compile_error(name, msg);
+}
+
 create_type_builtin: proc(kind: u8) -> *Type {
     ret: *Type = calloc(1, sizeof(Type));
     t: Type_Builtin = Type_Builtin{ 0, array_new(Attribute) };
@@ -152,9 +162,7 @@ lookup_type: proc(s: *State, name: *Token) -> *Type {
             Type_Unknown => {},
         } 
     }
-    // TODO: obviously change this error because its stupid
-    printf("%s\n".ptr, name_str.ptr);
-    panic("^^ Undefined type", #FILE, #LINE);
+    return 0;
 }
 
 determine_choice_tags: proc(s: *State, init: *Struct_Init_Node, choice_type: *Type_Choice) {
@@ -202,17 +210,69 @@ get_proc_return_type: proc(p: *Variable_Decl_Node) -> *Type {
     proc_var: *Variable_Decl_Node = p;
     proc_var_type: Type = proc_var.var_type;
     match p_ := proc_var_type {
-        Type_Builtin => { assert(false, "Not expecting Type_Builtin", #FILE, #LINE); },
-        Type_Pointer => { assert(false, "Not expecting Type_Pointer", #FILE, #LINE); },
+        Type_Builtin => { panic("Not expecting Type_Builtin", #FILE, #LINE); },
+        Type_Pointer => { panic("Not expecting Type_Pointer", #FILE, #LINE); },
         Type_Proc => {
             ret_type: *Type = p_.return_type;
             return ret_type;
         },
-        Type_Array => { assert(false, "Not expecting Type_Array", #FILE, #LINE); },
-        Type_Dynamic_Array => { assert(false, "Not expecting Type_Dynamic_Array", #FILE, #LINE); },
-        Type_Choice => { assert(false, "Not expecting Type_Choice", #FILE, #LINE); },
-        Type_Custom_Decl => { assert(false, "Not expecting Type_Custom_Decl", #FILE, #LINE); },
-        Type_Custom => { assert(false, "Not expecting Type_Custom", #FILE, #LINE); },
+        Type_Array => { panic("Not expecting Type_Array", #FILE, #LINE); },
+        Type_Dynamic_Array => { panic("Not expecting Type_Dynamic_Array", #FILE, #LINE); },
+        Type_Choice => { panic("Not expecting Type_Choice", #FILE, #LINE); },
+        Type_Custom_Decl => { panic("Not expecting Type_Custom_Decl", #FILE, #LINE); },
+        Type_Custom => { panic("Not expecting Type_Custom", #FILE, #LINE); },
+        Type_Unknown => {
+            todo("Unexpected Unknown", #FILE, #LINE);
+        }
+    }
+}
+
+get_proc_default_values: proc(p: *Variable_Decl_Node) -> [+]Expression {
+    // TODO: this is only like this because we are forced to match
+    //       on every Type, once we can coerce choice types to one
+    //       single type we should change this pattern where needed
+    //       because otherwise we have to type out every single choice
+    //       despite knowing before hand which one it is guaranteed to be
+    proc_var: *Variable_Decl_Node = p;
+    proc_var_type: Type = proc_var.var_type;
+    match p_ := proc_var_type {
+        Type_Builtin => { panic("Not expecting Type_Builtin", #FILE, #LINE); },
+        Type_Pointer => { panic("Not expecting Type_Pointer", #FILE, #LINE); },
+        Type_Proc => {
+            ret_type: [+]Expression = p_.default_vals;
+            return ret_type;
+        },
+        Type_Array => { panic("Not expecting Type_Array", #FILE, #LINE); },
+        Type_Dynamic_Array => { panic("Not expecting Type_Dynamic_Array", #FILE, #LINE); },
+        Type_Choice => { panic("Not expecting Type_Choice", #FILE, #LINE); },
+        Type_Custom_Decl => { panic("Not expecting Type_Custom_Decl", #FILE, #LINE); },
+        Type_Custom => { panic("Not expecting Type_Custom", #FILE, #LINE); },
+        Type_Unknown => {
+            todo("Unexpected Unknown", #FILE, #LINE);
+        }
+    }
+}
+
+get_proc_args: proc(p: *Variable_Decl_Node) -> [+]Variable_Decl_Node {
+    // TODO: this is only like this because we are forced to match
+    //       on every Type, once we can coerce choice types to one
+    //       single type we should change this pattern where needed
+    //       because otherwise we have to type out every single choice
+    //       despite knowing before hand which one it is guaranteed to be
+    proc_var: *Variable_Decl_Node = p;
+    proc_var_type: Type = proc_var.var_type;
+    match p_ := proc_var_type {
+        Type_Builtin => { panic("Not expecting Type_Builtin", #FILE, #LINE); },
+        Type_Pointer => { panic("Not expecting Type_Pointer", #FILE, #LINE); },
+        Type_Proc => {
+            ret_type: [+]Variable_Decl_Node = p_.args;
+            return ret_type;
+        },
+        Type_Array => { panic("Not expecting Type_Array", #FILE, #LINE); },
+        Type_Dynamic_Array => { panic("Not expecting Type_Dynamic_Array", #FILE, #LINE); },
+        Type_Choice => { panic("Not expecting Type_Choice", #FILE, #LINE); },
+        Type_Custom_Decl => { panic("Not expecting Type_Custom_Decl", #FILE, #LINE); },
+        Type_Custom => { panic("Not expecting Type_Custom", #FILE, #LINE); },
         Type_Unknown => {
             todo("Unexpected Unknown", #FILE, #LINE);
         }
@@ -377,6 +437,33 @@ match_expression: proc(s: *State, _expr: *Expression) -> *Type {
                 // NOTE: this is not correct actually
             }
 
+            // TODO: check if the default values are at the end because skipping is not allowed
+            //       or should it be allowed?
+            proc_args: [+]Variable_Decl_Node = get_proc_args(var_decl);
+            proc_args_len: i32 = array_size(proc_args);
+            call_args_len: i32 = array_size(e.args);
+            default_vals: [+]Expression = get_proc_default_values(var_decl);
+            default_vals_len: i32 = array_size(default_vals);
+            provided_args: i32 = proc_args_len - call_args_len;
+
+            if provided_args > 0 {
+                // need to provide default args
+                if (default_vals_len + call_args_len) < proc_args_len {
+                    compile_error(name_tok, "Too few arguments provided in this function call");
+                } else {
+                    for i: i32 = 0; i < default_vals_len; i = i + 1 {
+                        array_append(e.args, default_vals[i]);
+                    }
+                }
+            } else if provided_args < 0 {
+                compile_error(name_tok, "Too many arguments provided in this function call");
+            }
+
+            // need to insert the default values if required
+            for i: i32 = 0; i < array_size(default_vals); i = i + 1 {
+                d: *Expression = &default_vals[i];
+            }
+
             // need to walkthrough all the args
             for i: i32 = 0; i < array_size(e.args); i = i + 1 {
                 expr: *Expression = &e.args[i];
@@ -398,9 +485,7 @@ match_expression: proc(s: *State, _expr: *Expression) -> *Type {
         Struct_Init_Node => { 
             type_def: *Type = lookup_type(s, e.name);
             if type_def == 0 {
-                // NOTE: this is unreachable because lookup_type will panic
-                //       but we should probably change that to return 0 instead
-                unreachable("", #FILE, #LINE);
+                unknown_type_name_error(e.name);
             }
             match t := type_def {
                 Type_Builtin => {},
@@ -431,7 +516,12 @@ match_expression: proc(s: *State, _expr: *Expression) -> *Type {
             //todo("", #FILE, #LINE);
         },
         Array_Literal => { 
-            todo("", #FILE, #LINE);
+            // NOTE: this is done in the var declaration instead
+            // elements: [+]Expression = e.elements;
+            // for i: i32 = 0; i < array_size(elements); i = i + 1 {
+            //     expr: *Expression = &elements[i];
+            //     match_expression(s, expr);
+            // }
         },
     } 
 }
@@ -486,18 +576,29 @@ sa_walk_var_decl: proc(s: *State, v: *Variable_Decl_Node) {
                 sa_walk_block(s, t.block);
             }
         },
-        Type_Array => {},
+        Type_Array => {
+            // TODO: need to check if the elements of the expression match up with the 
+            // todo("", #FILE, #LINE);
+        },
         Type_Dynamic_Array => {
             // todo("static analysis for dynamic arrays", #FILE, #LINE);
         },
         Type_Choice => {},
-        Type_Custom_Decl => {},
-        Type_Custom => {},
+        Type_Custom_Decl => {
+            unreachable("Custom Type Declarations should not be found in variable declarations", #FILE, #LINE);
+        },
+        Type_Custom => {
+            // have to check if the type actually exists
+            type_declaration: *Type = lookup_type(s, t.name);
+            if type_declaration == 0 {
+                unknown_type_name_error(t.name);
+            }
+        },
         Type_Unknown => {
             // inference
             resolved_type: *Type = match_expression(s, v.rhs);
             if resolved_type == 0 {
-                panic("KEK", #FILE, #LINE);
+                panic("Type inference failed", #FILE, #LINE);
             }
             t.resolved = true;
             t.type_ = resolved_type;
@@ -727,9 +828,6 @@ sa_create_match_statement_rhs: proc(var_decl: *Variable_Decl_Node, field: *Field
     final_expr_tmp: Expression = Expression{ unary };
     memcpy(final_expr, &final_expr_tmp, sizeof(Expression));
     var_decl.rhs = final_expr;
-
-
-
 }
 
 sa_add_statement_to_match_blocks: proc(ast: *Ast, m: *Match_Node, choice_type: *Type_Choice) {

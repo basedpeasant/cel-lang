@@ -411,7 +411,14 @@ get_type_string: proc(type__: Type) -> string {
            }
        },
        Type_Pointer => { 
-           todo("implement get_type_string for Type_Pointer", #FILE, #LINE);
+           inner: *Type = x.inner;
+           inner_string: string = get_type_string(inner[0]);
+           sb: String_Builder;
+           sb_push_str(&sb, inner_string);
+           sb_push(&sb, '*');
+           ret: string = sb_to_string(&sb);
+           sb_free(&sb);
+           return ret;
        },
        Type_Proc => { 
            todo("implement get_type_string for Type_Proc", #FILE, #LINE);
@@ -420,7 +427,14 @@ get_type_string: proc(type__: Type) -> string {
            todo("implement get_type_string for Type_Array", #FILE, #LINE);
        },
        Type_Dynamic_Array => { 
-           todo("implement get_type_string for Type_Dynamic_Array", #FILE, #LINE);
+           inner: *Type = x.array_type;
+           inner_string: string = get_type_string(inner[0]);
+           sb: String_Builder;
+           sb_push_str(&sb, inner_string);
+           sb_push(&sb, '*');
+           ret: string = sb_to_string(&sb);
+           sb_free(&sb);
+           return ret;
        },
        Type_Choice => { 
            todo("implement get_type_string for Type_Choice", #FILE, #LINE);
