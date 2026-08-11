@@ -424,18 +424,6 @@ match_expression: proc(s: *State, _expr: *Expression) -> *Type {
                 panic("Could not find proc (lookup_name)\n", #FILE, #LINE);
             }
             ret_type: *Type = get_proc_return_type(var_decl);
-            if ret_type != 0 {
-                // TODO: need to add the line info etc
-                // Sample from Go: ./main.go:10:2: declared and not used: a
-                // TODO: need to change this to support the new compile format in @error
-                filename: string = name_tok.filename;
-                printf("./%s:%d:%d: WARNING: result for call '%s' is not used\n".ptr, 
-                    filename.ptr, 
-                    name_tok.y, 
-                    name_tok.x,
-                    name.ptr);
-                // NOTE: this is not correct actually
-            }
 
             // TODO: check if the default values are at the end because skipping is not allowed
             //       or should it be allowed?
@@ -962,6 +950,69 @@ sa_walk_expression_statement_with_block: proc(s: *State, es: *Expression_Stateme
     }
 }
 
+sa_check_call_result_is_used: proc(s: *State, expr: *Expression) {
+    ast: *Ast = s.ast;
+    match e := expr {
+        Binary_Node => {},
+        Number_Node => {},
+        Variable_Node => {},
+        Call_Node => {
+            name_tok: *Token = e.name;
+            name: string = name_tok.tok;
+            is_void: bool = false;
+            var_decl: *Variable_Decl_Node = lookup_name(ast.scopes, ast.current_scope, name);
+            builtin: *Type = get_builtin_proc_type(name);
+            if var_decl == 0 && builtin == 0 {
+                printf("%s\n".ptr, name.ptr);
+                panic("Could not find proc (lookup_name)\n", #FILE, #LINE);
+            } else if var_decl == 0 && builtin != 0 {
+                match b := builtin {
+                    Type_Builtin => {
+                        if b.kind == TYPE_VOID {
+                            is_void = true;
+                        }
+                    },
+                    Type_Pointer => {},
+                    Type_Proc => {},
+                    Type_Array => {},
+                    Type_Dynamic_Array => {},
+                    Type_Choice => {},
+                    Type_Custom_Decl => {},
+                    Type_Custom => {},
+                    Type_Unknown => {}
+                }
+            } else {
+                // TODO: pretty sure this assert is needed but perhaps this actually should be checked elsewhere
+                // assert(var_decl != 0 && builtin != 0, "TODO: need to handle case where user names the function with a builtin proc", #FILE, #LINE);
+            }
+            ret_type: *Type;
+            if builtin != 0 {
+                ret_type = builtin;
+            } else {
+                ret_type = get_proc_return_type(var_decl);
+            }
+
+            if ret_type != 0 && !is_void {
+                // TODO: need to add the line info etc
+                // Sample from Go: ./main.go:10:2: declared and not used: a
+                // TODO: need to change this to support the new compile format in @error
+                filename: string = name_tok.filename;
+                printf("./%s:%d:%d: WARNING: result for call '%s' is not used\n".ptr, 
+                    filename.ptr, 
+                    name_tok.y, 
+                    name_tok.x,
+                    name.ptr);
+                // NOTE: this is not correct actually
+            }
+
+        },
+        String_Literal => {},
+        Unary_Node => {},
+        Struct_Init_Node => {},
+        Array_Literal => {},
+    }
+}
+
 sa_walk_block: proc(s: *State, block: *Block_Node) {
     isRoot: bool = block.scope == 0;
     ast: *Ast = s.ast;
@@ -974,6 +1025,7 @@ sa_walk_block: proc(s: *State, block: *Block_Node) {
                 stmt: *Expression_Statement = st;
                 match es := stmt {
                     Expression => {
+                        sa_check_call_result_is_used(s, es);
                         match_expression(s, es);
                     },
                     Expression_Statement_With_Block => {
