@@ -181,6 +181,8 @@ write_start: proc(g: *Generator) {
             sb_push_str(g.output, cel_main);
             continue;
         }
+        attr_string: string = attributes_to_string(procedure.attributes);
+        sb_push_str(g.output, attr_string);
         if procedure.return_type == 0 {
             sb_push_str(g.output, "void ");
         } else {
@@ -269,42 +271,83 @@ output_indentations: proc(g: *Generator) {
     }
 }
 
+// Map an Attribute kind to its C representation.
+get_attribute_string: proc(attribute: *Attribute) -> string {
+    if attribute.kind == ATTRIBUTE_EXTERN {
+        return "extern";
+    } else if attribute.kind == ATTRIBUTE_STATIC {
+        return "static";
+    } else if attribute.kind == ATTRIBUTE_CONST {
+        return "const";
+    } else {
+        unreachable("Unknown attribute supplied here (this should have failed earlier)", #FILE, #LINE);
+    }
+}
+
+// Concatenate the C representation of every attribute in `attributes`
+// (e.g. "extern ", "static ", "const ") so it can be prepended to a type.
+attributes_to_string: proc(attributes: [+]Attribute) -> string {
+    sb: String_Builder;
+    if attributes != 0 {
+        for i: i32 = 0; i < array_size(attributes); i = i + 1 {
+            attribute: Attribute = attributes[i];
+            attribute_string: string = get_attribute_string(&attribute);
+            sb_push_str(&sb, attribute_string);
+            sb_push(&sb, ' ');
+        }
+    }
+    ret: string = sb_to_string(&sb);
+    sb_free(&sb);
+    return ret;
+}
+
 get_c_type: proc(type__: Type) -> string {
     type_: Type = type__; // NOTE/TODO: this is only here cus of a bug
-    // TODO: attributes
+    // NOTE: attributes are folded into the returned type string here
+    //       (`@const *u8` becomes `const unsigned char*`, `@extern proc`
+    //       becomes `extern int`). This means `@const` on a pointer
+    //       means pointer-to-const; a const pointer is not representable.
     match t := type_ {
         Type_Builtin => {
+            c_type: string;
             if t.kind == TYPE_U8 {
-                return "unsigned char";
+                c_type = "unsigned char";
             } else if t.kind == TYPE_U16 {
-                return "unsigned short";
+                c_type = "unsigned short";
             } else if t.kind == TYPE_U32 {
-                return "unsigned int";
+                c_type = "unsigned int";
             } else if t.kind == TYPE_U64 {
-                return "unsigned long";
+                c_type = "unsigned long";
             } else if t.kind == TYPE_I8 {
-                return "char";
+                c_type = "char";
             } else if t.kind == TYPE_I16 {
-                return "short";
+                c_type = "short";
             } else if t.kind == TYPE_I32 {
-                return "int";
+                c_type = "int";
             } else if t.kind == TYPE_I64 {
-                return "long";
+                c_type = "long";
             } else if t.kind == TYPE_BOOL {
-                return "bool";
+                c_type = "bool";
             } else if t.kind == TYPE_STRING {
-                return "string";
+                c_type = "string";
             } else if t.kind == TYPE_VOID_PTR {
-                return "void*";
+                c_type = "void*";
             } else {
                 printf("UNKNOWN TYPE %d\n".ptr, t.kind);
                 assert(false, "Unhandled TYPE", #FILE, #LINE);
             }
+            sb: String_Builder;
+            sb_push_str(&sb, attributes_to_string(t.attributes));
+            sb_push_str(&sb, c_type);
+            ret: string = sb_to_string(&sb);
+            sb_free(&sb);
+            return ret;
         },
         Type_Pointer => {
             inner: *Type = t.inner;
             c_type: string = get_c_type(inner[0]);
             sb: String_Builder;
+            sb_push_str(&sb, attributes_to_string(t.attributes));
             sb_push_str(&sb, c_type);
             sb_push_str(&sb, "*");
             // memory allocated here without freeing
@@ -315,14 +358,31 @@ get_c_type: proc(type__: Type) -> string {
             return ret;
         },
         Type_Proc => {
-            todo("get_c_type (Type_Proc)", #FILE, #LINE);
+            sb: String_Builder;
+            sb_push_str(&sb, attributes_to_string(t.attributes));
+            if t.return_type == 0 {
+                sb_push_str(&sb, "void");
+            } else {
+                c_type: string = get_c_type(t.return_type[0]);
+                sb_push_str(&sb, c_type);
+            }
+            ret: string = sb_to_string(&sb);
+            sb_free(&sb);
+            return ret;
         },
         Type_Array => {
-            todo("get_c_type (Type_Array)", #FILE, #LINE);
+            array_type: string = get_c_type(t.array_type[0]);
+            sb: String_Builder;
+            sb_push_str(&sb, attributes_to_string(t.attributes));
+            sb_push_str(&sb, array_type);
+            ret: string = sb_to_string(&sb);
+            sb_free(&sb);
+            return ret;
         },
         Type_Dynamic_Array => {
             array_type: string = get_c_type(t.array_type[0]);
             sb: String_Builder;
+            sb_push_str(&sb, attributes_to_string(t.attributes));
             sb_push_str(&sb, array_type);
             sb_push(&sb, '*');
             ret: string = sb_to_string(&sb);
@@ -337,8 +397,12 @@ get_c_type: proc(type__: Type) -> string {
         },
         Type_Custom => {
             name: *Token = t.name;
-            name_str: string = name.tok;
-            return name_str;
+            sb: String_Builder;
+            sb_push_str(&sb, attributes_to_string(t.attributes));
+            sb_push_str(&sb, name.tok);
+            ret: string = sb_to_string(&sb);
+            sb_free(&sb);
+            return ret;
         },
         Type_Unknown => {
             assert(t.resolved, "an unresolved Type_Unknown reached get_c_type", #FILE, #LINE);
@@ -352,6 +416,8 @@ walk_proc: proc(g: *Generator, proc_: *Type_Proc) {
     if strcmp(name.tok, "main") {
         sb_push_str(g.output, g.main_declaration);
     } else {
+        attr_string: string = attributes_to_string(proc_.attributes);
+        sb_push_str(g.output, attr_string);
         if proc_.return_type != 0 {
             // TODO: using [0] for dereference lol
             c_type_string: string = get_c_type(proc_.return_type[0]);
@@ -379,7 +445,7 @@ walk_proc: proc(g: *Generator, proc_: *Type_Proc) {
         walk_block(g, proc_.block, false);
     } else {
         // this should be a forward declaration
-        sb_push_str(g.output, ";");
+        sb_push_str(g.output, ";\n");
     }
 }
 
@@ -568,59 +634,6 @@ walk_expression: proc(g: *Generator, expr_: *Expression) {
     }
 }
 
-get_attribute_string: proc(attribute: *Attribute) -> string {
-    if attribute.kind == ATTRIBUTE_EXTERN {
-        return "extern";
-    } else if attribute.kind == ATTRIBUTE_STATIC {
-        return "static";
-    } else if attribute.kind == ATTRIBUTE_CONST {
-        return "const";
-    } else {
-        unreachable("Unknown attribute supplied here (this should have failed earlier)", #FILE, #LINE);
-    }
-}
-
-walk_attributes: proc(g: *Generator, var_decl: *Variable_Decl_Node) {
-    var_type: *Type = &var_decl.var_type;
-    attributes: [+]Attribute = 0;
-
-    // TODO: seems very verbose but only way I can think of doing it rn 
-    match vt := var_type {
-        Type_Builtin => { 
-            attributes = vt.attributes; 
-        },
-        Type_Pointer => { 
-            attributes = vt.attributes;
-        },
-        Type_Proc => { 
-            attributes = vt.attributes;
-        },
-        Type_Array => { 
-            attributes = vt.attributes;
-        },
-        Type_Dynamic_Array => { 
-            attributes = vt.attributes;
-        },
-        Type_Choice => { todo("implement walk_attributes", #FILE, #LINE); },
-        Type_Custom_Decl => { todo("implement walk_attributes", #FILE, #LINE); },
-        Type_Custom => { 
-            attributes = vt.attributes;
-        },
-        Type_Unknown => { 
-            // TODO: skip for now but need to finish later
-        }
-    }
-
-    if attributes != 0 {
-        for i: i32 = 0; i < array_size(attributes); i = i + 1 {
-            attribute: Attribute = attributes[i];
-            attribute_string: string = get_attribute_string(&attribute);
-            sb_push_str(g.output, attribute_string);
-            sb_push(g.output, ' ');
-        }
-    }
-}
-
 walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
     var_type: Type = variable_decl.var_type;
     skip: bool = false;
@@ -629,7 +642,6 @@ walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
     is_arr: bool = false;
     is_type_custom: bool = false;
     size_expr: *Expression = 0;
-    walk_attributes(g, variable_decl);
 
     match t := var_type {
         Type_Builtin => {
@@ -639,9 +651,8 @@ walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
             sb_push(g.output, ' ');
         },
         Type_Pointer => {
-            c_type_str: string = get_c_type(t.inner[0]);
+            c_type_str: string = get_c_type(var_type);
             sb_push_str(g.output, c_type_str);
-            sb_push(g.output, '*');
             sb_push(g.output, ' ');
         },
         Type_Proc => {
@@ -649,9 +660,7 @@ walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
             skip = true;
         },
         Type_Array => {
-            // TODO: cannot dereference in any other way right now 
-            // TODO: shouldn't this be partially done in get_c_type instead of here?
-            c_type_str: string = get_c_type(t.array_type[0]);
+            c_type_str: string = get_c_type(var_type);
             sb_push_str(g.output, c_type_str);
             sb_push(g.output, ' ');
             is_arr = true;
@@ -669,8 +678,7 @@ walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
             unreachable("types should not be in the list of statements in any blocks", #FILE, #LINE);
         },
         Type_Custom => {
-            type_tok: *Token = t.name;
-            type_str: string = type_tok.tok;
+            type_str: string = get_c_type(var_type);
             sb_push_str(g.output, type_str);
             sb_push(g.output, ' ');
             is_type_custom = true;

@@ -277,7 +277,7 @@ Proc_Header_Node: type struct {
 	// block: Block_Node,
 	args: [+]Variable_Decl_Node,
 	return_type: *Type,
-	// attributes: [+]Attribute // need enum support
+	attributes: [+]Attribute
 }
 
 Decl_Node: type choice {
@@ -774,18 +774,26 @@ extract_type: proc(ast: *Ast) -> Type {
         print_token(tmp);
         type_: Type = extract_type(ast);
         match t := type_ {
-			Type_Builtin => { todo("(Builtin) not implemented attributes for types outside of proc", #FILE, #LINE); },
+			Type_Builtin => { 
+                t.attributes = attributes;
+            },
 			Type_Pointer => { 
                 t.attributes = attributes;
             },
 			Type_Proc => {
                 t.attributes = attributes;
 			},
-			Type_Array => { todo("(Array) not implemented attributes for types outside of proc", #FILE, #LINE); },
-			Type_Dynamic_Array => { todo("(Dynamic_Array) not implemented attributes for types outside of proc", #FILE, #LINE); },
+			Type_Array => {
+                t.attributes = attributes;
+            },
+			Type_Dynamic_Array => {
+                t.attributes = attributes;
+            },
             Type_Choice => { todo("(Choice) not implemented attributes for types outside of proc", #FILE, #LINE); },
             Type_Custom_Decl => { todo("(Custom_Decl) not implemented attributes for types outside of proc", #FILE, #LINE); },
-			Type_Custom => { todo("(Custom) not implemented attributes for types outside of proc", #FILE, #LINE); },
+			Type_Custom => {
+                t.attributes = attributes;
+            },
             Type_Unknown => { todo("(Unknown) not implemented attributes for types outside of proc", #FILE, #LINE); }
         }
         return type_;
@@ -1550,7 +1558,8 @@ create_statement: proc(ast: *Ast, scope: u32) -> *Statement {
                     proc_header: Proc_Header_Node = Proc_Header_Node{ 
                         name, 
                         type_.args, 
-                        type_.return_type 
+                        type_.return_type,
+                        type_.attributes 
                     };
                     array_append(ast.procs, proc_header);
                     rhs_check = false;
