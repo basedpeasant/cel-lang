@@ -701,7 +701,9 @@ print_token: proc(token: *Token) {
 	t: string = token.tok;
 	tt_str: string = get_tt_string_repr(token.tt);
     filename: string = token.filename;
-	printf("[DEBUG]::=> Token: %s [%s](%d:%d)(%s)\n".ptr, t.ptr, tt_str.ptr, token.y, token.x, filename.ptr);
+    if DEBUG_MODE {
+        printf("[DEBUG]::=> Token: %s [%s](%d:%d)(%s)\n".ptr, t.ptr, tt_str.ptr, token.y, token.x, filename.ptr);
+    }
 }
 
 print_tokens: proc(tokens: [+]Token) {

@@ -369,6 +369,9 @@ ast_match: proc(ast: *Ast, tt: u8, file: string, line: i32) {
 		sb_push_str(&sb, current_token_str);
 		sb_push_str(&sb, "')");
 		msg: string = sb_to_string(&sb);
+        if DEBUG_MODE {
+            printf("DEBUG: %s:%d\n".ptr, file.ptr, line);
+        }
 		compile_error(current_token, msg);
 	}
 }
@@ -770,7 +773,6 @@ extract_type: proc(ast: *Ast) -> Type {
         // attributes
         attributes: [+]Attribute = extract_attributes(ast);
         tmp: *Token = get_current_token(ast);
-        printf("-------------\n".ptr);
         print_token(tmp);
         type_: Type = extract_type(ast);
         match t := type_ {
@@ -1830,7 +1832,7 @@ create_block: proc(ast: *Ast, root: bool, parent_scope: u32, reserve: u32) -> Bl
 	}
 
 	if root {
-		print_ast(block);
+		//print_ast(block);
 	}
     ast.current_scope = parent_scope;
 	return block;

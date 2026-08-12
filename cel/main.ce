@@ -1,3 +1,5 @@
+DEBUG_MODE: bool = false;
+
 include "core.ce";
 include "tokenize.ce";
 include "ast.ce";
@@ -19,10 +21,9 @@ main: proc(argc: i32, argv: **u8) {
 	filename: string = string{strlen(argv[1]), argv[1]};
 	src: string = read_file_to_string(filename);
 	register_source(filename, src);
-	printf("%s".ptr, src.ptr);
 	tokens: [+]Token = tokenize(&src, filename);
 	expanded: [+]Token = expand_includes(tokens, filename);
-	print_tokens(expanded);
+	//print_tokens(expanded);
 	ast: Ast = ast_start(expanded);
     start_analysis(&ast);
 	printf("Exiting...\n".ptr);
