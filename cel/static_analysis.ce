@@ -165,16 +165,7 @@ lookup_type: proc(s: *State, name: *Token) -> *Type {
     return 0;
 }
 
-determine_choice_tags: proc(s: *State, init: *Struct_Init_Node, choice_type: *Type_Choice) {
-    ast: *Ast = s.ast;
-    types: [+]Type = ast.types;
-    tag: i32 = 0;
-    assert(init.is_choice, "The struct initializer MUST be marked as a choice before entering this procedure", #FILE, #LINE);
-    assert(array_size(init.exprs) == 1, "Choice type initializer MUST have only one value", #FILE, #LINE);
-    expr: Expression = init.exprs[0];
-    expr_type: *Type = match_expression(s, &expr);
-
-    // TODO: handle when user provides other types of values
+match_tags: proc(init: *Struct_Init_Node, choice_type: *Type_Choice, expr_type: *Type) -> bool {
     match et := expr_type {
         Type_Builtin => { todo("Cannot use expressions in choice intialization", #FILE, #LINE); },
         Type_Pointer => { todo("Cannot use expressions in choice intialization", #FILE, #LINE); },
@@ -192,13 +183,32 @@ determine_choice_tags: proc(s: *State, init: *Struct_Init_Node, choice_type: *Ty
                 field_name: string = field_token.tok;
                 if strcmp(field_name, expr_type_name_str) {
                     init.tag = field.tag;
-                    return;
+                    return true;
                 }
             }
         },
-        Type_Unknown => { todo("Cannot use expressions in choice intialization", #FILE, #LINE); },
+        Type_Unknown => {
+            assert(et.resolved, "Type_Unknown has appeared without being resolved, something is wrong", #FILE, #LINE);
+            inner: *Type = et.type_;
+            return match_tags(init, choice_type, inner);
+        },
     }
-    panic("Could not find type specified in choice initializer in choice declaration", #FILE, #LINE); // TODO: better errors
+    return false;
+}
+
+determine_choice_tags: proc(s: *State, init: *Struct_Init_Node, choice_type: *Type_Choice) {
+    ast: *Ast = s.ast;
+    types: [+]Type = ast.types;
+    tag: i32 = 0;
+    assert(init.is_choice, "The struct initializer MUST be marked as a choice before entering this procedure", #FILE, #LINE);
+    assert(array_size(init.exprs) == 1, "Choice type initializer MUST have only one value", #FILE, #LINE);
+    expr: Expression = init.exprs[0];
+    expr_type: *Type = match_expression(s, &expr);
+    success: bool = match_tags(init, choice_type, expr_type);
+
+    if !success {
+        panic("Could not find type specified in choice initializer in choice declaration", #FILE, #LINE); // TODO: better errors
+    }
 }
 
 get_proc_return_type: proc(p: *Variable_Decl_Node) -> *Type {
@@ -555,6 +565,7 @@ sa_walk_var_decl: proc(s: *State, v: *Variable_Decl_Node) {
     // TODO: need to check every type to see if the rhs matches the 
     //       declared type
     var_type: *Type = &v.var_type;
+    skip: bool = false;
     match t := var_type {
         Type_Builtin => {},
         Type_Pointer => {},
@@ -590,9 +601,35 @@ sa_walk_var_decl: proc(s: *State, v: *Variable_Decl_Node) {
             }
             t.resolved = true;
             t.type_ = resolved_type;
+            skip = true;
+            // NOTE: the block statement holds a separate copy of the Variable_Decl_Node
+            //       from the one stored in the scope map. lookup_name reads the scope map
+            //       copy, so we must propagate the resolution there as well, otherwise any
+            //       later reference to this variable still sees Type_Unknown as unresolved
+            ast: *Ast = s.ast;
+            name: *Token = v.symbol;
+            name_str: string = name.tok;
+            map_var_decl: *Variable_Decl_Node = lookup_name(ast.scopes, ast.current_scope, name.tok);
+            map_var_decl_var_type: *Type = &map_var_decl.var_type;
+            if map_var_decl != 0 {
+                match mt := map_var_decl_var_type {
+                    Type_Unknown => {
+                        mt.resolved = true;
+                        mt.type_ = resolved_type;
+                    },
+                    Type_Builtin => {},
+                    Type_Pointer => {},
+                    Type_Proc => {},
+                    Type_Array => {},
+                    Type_Dynamic_Array => {},
+                    Type_Choice => {},
+                    Type_Custom_Decl => {},
+                    Type_Custom => {},
+                }
+            }
         }
     }
-    if v.rhs != 0 {
+    if v.rhs != 0 && !skip {
         match_expression(s, v.rhs);
     }
 }

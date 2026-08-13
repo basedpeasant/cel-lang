@@ -636,6 +636,7 @@ walk_expression: proc(g: *Generator, expr_: *Expression) {
 
 walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
     var_type: Type = variable_decl.var_type;
+    is_arg: bool = variable_decl.is_arg;
     skip: bool = false;
 
     // TODO: doing it this way won't work for multi dimensional arrays
@@ -693,19 +694,21 @@ walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
     if !skip {
         name: *Token = variable_decl.symbol;
         sb_push_str(g.output, name.tok);
-        if is_arr {
-            sb_push(g.output, '[');
-            walk_expression(g, size_expr);
-            sb_push(g.output, ']');
-        }
-        if variable_decl.rhs != 0 {
-            sb_push_str(g.output, " = ");
-            walk_expression(g, variable_decl.rhs);
-        } else {
+        if !is_arg {
             if is_arr {
-                sb_push_str(g.output, " = {0}");
-            } else if is_type_custom {
-                sb_push_str(g.output, " = {0}");
+                sb_push(g.output, '[');
+                walk_expression(g, size_expr);
+                sb_push(g.output, ']');
+            }
+            if variable_decl.rhs != 0 {
+                sb_push_str(g.output, " = ");
+                walk_expression(g, variable_decl.rhs);
+            } else {
+                if is_arr {
+                    sb_push_str(g.output, " = {0}");
+                } else if is_type_custom {
+                    sb_push_str(g.output, " = {0}");
+                }
             }
         }
     }
