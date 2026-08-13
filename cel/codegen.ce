@@ -413,6 +413,10 @@ get_c_type: proc(type__: Type) -> string {
 
 walk_proc: proc(g: *Generator, proc_: *Type_Proc) {
     name: *Token = proc_.name;
+    if proc_.is_generic {
+        // TODO:
+        todo("Codegen for generic procedures", #FILE, #LINE);
+    }
     if strcmp(name.tok, "main") {
         sb_push_str(g.output, g.main_declaration);
     } else {

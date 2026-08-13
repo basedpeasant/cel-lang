@@ -69,6 +69,8 @@ Type_Proc: type struct {
 	name: *Token,
 	block: *Block_Node,
     default_vals: [+]Expression,
+    is_generic: bool,
+    generic_type_symbols: [+]*Token
 }
 
 Type_Array: type struct {
@@ -593,10 +595,45 @@ extract_type: proc(ast: *Ast) -> Type {
             }
 		}
 	} else if current_token.tt == TK_PROC {
-		advance(ast);
-		ast_match(ast, TK_OPEN_PAREN, #FILE, #LINE);
+        generic_type_symbols: [+]*Token;
 		advance(ast);
         current_token: *Token = get_current_token(ast);
+        is_generic: bool = false;
+        if current_token.tt == TK_OPEN_SQUARE {
+            advance(ast);
+            start: bool = true;
+            is_generic = true;
+            for true {
+                current_token = get_current_token(ast);
+                if current_token.tt == TK_CLOSE_SQUARE && start {
+                    // cannot have empty [] for generics
+                    compile_error(current_token, "No symbols present where generic type symbols were expected");
+                }
+                ast_match(ast, TK_WORD, #FILE, #LINE);
+                array_append(generic_type_symbols, current_token);
+                advance(ast);
+                current_token = get_current_token(ast);
+                if current_token.tt == TK_COMMA {
+                    start = false;
+                    advance(ast);
+                } else if current_token.tt == TK_CLOSE_SQUARE {
+                    advance(ast);
+                    break;
+                } else {
+                    compile_error(current_token, "Expected a ',' or a ']'");
+                }
+            }
+        } 
+
+        current_token = get_current_token(ast);
+        if current_token.tt == TK_OPEN_PAREN {
+            advance(ast);
+            current_token = get_current_token(ast);
+        } else {
+            compile_error(current_token, "kelrkr;qr");
+            panic("kdqpokdwqdqw", #FILE, #LINE); // TODO: fix this error
+        }
+		// ast_match(ast, TK_OPEN_PAREN, #FILE, #LINE);
 		attributes: [+]Attribute; //TODO: need to populate as well
         default_vals: [+]Expression;
 		args: [+]Variable_Decl_Node;
@@ -651,7 +688,16 @@ extract_type: proc(ast: *Ast) -> Type {
             panic("Expected '}' or ';' but got something else", #FILE, #LINE);
         }
 
-		proc_type: Type_Proc = Type_Proc{ attributes, args, return_type, 0, proc_block_alloc, default_vals };
+		proc_type: Type_Proc = Type_Proc{ 
+            attributes, 
+            args, 
+            return_type, 
+            0, 
+            proc_block_alloc, 
+            default_vals, 
+            is_generic, 
+            generic_type_symbols 
+        };
 		ret: Type = Type { proc_type };
 		return ret;
 		// todo("handling for Type_Proc", #FILE, #LINE);
