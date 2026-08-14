@@ -372,6 +372,27 @@ construct_type_custom: proc(name: *Token) -> *Type {
     return ret;
 }
 
+handle_generic_procs: proc(s: *State, proc_type: *Type) -> bool {
+    printf("Handle generics\n".ptr);
+    // TODO: also will need to append a bunch of Proc_Header_Nodes for the generic procs
+    match pt := proc_type {
+        Type_Pointer => { unreachable("", #FILE, #LINE); },
+        Type_Builtin => { unreachable("", #FILE, #LINE); },
+        Type_Proc => { 
+            if pt.is_generic {
+                todo("generic procs in sa", #FILE, #LINE);
+            }
+        },
+        Type_Array => { unreachable("", #FILE, #LINE); },
+        Type_Dynamic_Array => { unreachable("", #FILE, #LINE); },
+        Type_Choice => { unreachable("", #FILE, #LINE); },
+        Type_Custom_Decl => { unreachable("", #FILE, #LINE); },
+        Type_Custom => { unreachable("", #FILE, #LINE); },
+        Type_Unknown => { unreachable("", #FILE, #LINE); },
+    }
+    return true;
+}
+
 match_expression: proc(s: *State, _expr: *Expression) -> *Type {
     // TODO/NOTE: Have to do this because of bug
     expr: *Expression = _expr;
@@ -433,6 +454,7 @@ match_expression: proc(s: *State, _expr: *Expression) -> *Type {
                 printf("%s\n".ptr, name.ptr);
                 panic("Could not find proc (lookup_name)\n", #FILE, #LINE);
             }
+            is_generic: bool = handle_generic_procs(s, &var_decl.var_type);
             ret_type: *Type = get_proc_return_type(var_decl);
 
             // TODO: check if the default values are at the end because skipping is not allowed
