@@ -194,7 +194,8 @@ Binary_Node: type struct {
 
 Call_Node: type struct {
     name: *Token,
-    args: [+]Expression
+    args: [+]Expression,
+    new_name: *string // this is for if there is a name change required for generics
 }
 
 Struct_Init_Node: type struct {
@@ -1016,7 +1017,7 @@ parse_primary: proc(ast: *Ast, scope: u32, in_if: bool) -> Expression {
             }
             ast_match(ast, TK_CLOSE_PAREN, #FILE, #LINE);
             advance(ast);
-            call: Call_Node = Call_Node{ name, args };
+            call: Call_Node = Call_Node{ name, args, 0 };
             ret: Expression = Expression{ call };
             return ret;
         } else if peek.tt == TK_OPEN_CURLY && !in_if {

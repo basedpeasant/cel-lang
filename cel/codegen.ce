@@ -305,7 +305,7 @@ walk_proc: proc(g: *Generator, proc_: *Type_Proc) {
     name: *Token = proc_.name;
     if proc_.is_generic {
         // TODO:
-        todo("Codegen for generic procedures", #FILE, #LINE);
+        // todo("Codegen for generic procedures", #FILE, #LINE);
     }
     if strcmp(name.tok, "main") {
         sb_push_str(g.output, g.main_declaration);
@@ -448,6 +448,9 @@ walk_expression: proc(g: *Generator, expr_: *Expression) {
         Call_Node => {
             token: *Token = e.name;
             str: string = token.tok; 
+            if e.new_name != 0 {
+                str = e.new_name[0];
+            }
             sb_push_str(g.output, str);
             sb_push_str(g.output, "(");
             for i: i32 = 0; i < array_size(e.args); i = i + 1 {

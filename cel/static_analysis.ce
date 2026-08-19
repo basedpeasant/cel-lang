@@ -550,7 +550,7 @@ create_new_typed_proc: proc(
     proc_decl: *Variable_Decl_Node, 
     proc_type: *Type_Proc, 
     call: *Call_Node
-) -> *Variable_Decl_Node {
+) -> *string {
     ast: *Ast = s.ast;
     assert(proc_type.is_generic, "Can only supply generic functions here", #FILE, #LINE);
     proc_decl_type: *Type = &proc_decl.var_type;
@@ -632,15 +632,17 @@ create_new_typed_proc: proc(
     substitute_generic_arg_types(s, new_proc_type.args, generic_type_symbols, call);
     new_proc_type.new_name = new_name;
     new_proc_decl.symbol = new_name;
-    tmp: *Token = new_name.tok;
+    tmp: string = new_name.tok;
+    ret: *string = &new_name.tok;
     printf("generic_proc: %s\n".ptr, tmp.ptr);
 
-    todo("handle generic types", #FILE, #LINE);
+    // todo("handle generic types", #FILE, #LINE);
 
     // declare new header for this proc
     // TODO: change the name
     new_proc_header: Proc_Header_Node = Proc_Header_Node{ new_proc_decl.symbol, new_proc_type.args, new_proc_type.return_type, new_proc_type.attributes };
     array_append(ast.procs, new_proc_header);
+    return ret; 
 }
 
 // kind of a dumb arg name but anyway
@@ -743,8 +745,9 @@ handle_generic_procs: proc(s: *State, proc_decl: *Variable_Decl_Node, call: *Cal
             if pt.is_generic {
                 // create new generic types
                 // TODO: handle return value
-                create_new_typed_proc(s, proc_decl, pt, call);
-                todo("generic procs in sa", #FILE, #LINE);
+                new_name: *string = create_new_typed_proc(s, proc_decl, pt, call);
+                call.new_name = new_name;
+                // todo("generic procs in sa", #FILE, #LINE);
             }
             return pt.is_generic;
         },
