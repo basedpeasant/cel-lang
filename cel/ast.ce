@@ -70,7 +70,9 @@ Type_Proc: type struct {
 	block: *Block_Node,
     default_vals: [+]Expression,
     is_generic: bool,
-    generic_type_symbols: [+]*Token
+    generic_type_symbols: [+]*Token,
+    // for static analysis
+    new_name: *Token
 }
 
 Type_Array: type struct {
@@ -631,7 +633,6 @@ extract_type: proc(ast: *Ast) -> Type {
             current_token = get_current_token(ast);
         } else {
             compile_error(current_token, "kelrkr;qr");
-            panic("kdqpokdwqdqw", #FILE, #LINE); // TODO: fix this error
         }
 		// ast_match(ast, TK_OPEN_PAREN, #FILE, #LINE);
 		attributes: [+]Attribute; //TODO: need to populate as well
@@ -696,7 +697,8 @@ extract_type: proc(ast: *Ast) -> Type {
             proc_block_alloc, 
             default_vals, 
             is_generic, 
-            generic_type_symbols 
+            generic_type_symbols,
+            0
         };
 		ret: Type = Type { proc_type };
 		return ret;
@@ -2315,6 +2317,117 @@ expand_includes: proc(tokens: [+]Token, base_filename: string) -> [+]Token {
         }
     }
     return result;
+}
+
+// NOTE: this doesn't get used in AST but I want it to use it in static_analysis and codegen
+get_c_type: proc(type__: Type) -> string {
+    type_: Type = type__; // NOTE/TODO: this is only here cus of a bug
+    // NOTE: attributes are folded into the returned type string here
+    //       (`@const *u8` becomes `const unsigned char*`, `@extern proc`
+    //       becomes `extern int`). This means `@const` on a pointer
+    //       means pointer-to-const; a const pointer is not representable.
+    match t := type_ {
+        Type_Builtin => {
+            c_type: string;
+            if t.kind == TYPE_U8 {
+                c_type = "unsigned char";
+            } else if t.kind == TYPE_U16 {
+                c_type = "unsigned short";
+            } else if t.kind == TYPE_U32 {
+                c_type = "unsigned int";
+            } else if t.kind == TYPE_U64 {
+                c_type = "unsigned long";
+            } else if t.kind == TYPE_I8 {
+                c_type = "char";
+            } else if t.kind == TYPE_I16 {
+                c_type = "short";
+            } else if t.kind == TYPE_I32 {
+                c_type = "int";
+            } else if t.kind == TYPE_I64 {
+                c_type = "long";
+            } else if t.kind == TYPE_BOOL {
+                c_type = "bool";
+            } else if t.kind == TYPE_STRING {
+                c_type = "string";
+            } else if t.kind == TYPE_VOID_PTR {
+                c_type = "void*";
+            } else {
+                printf("UNKNOWN TYPE %d\n".ptr, t.kind);
+                assert(false, "Unhandled TYPE", #FILE, #LINE);
+            }
+            sb: String_Builder;
+            sb_push_str(&sb, attributes_to_string(t.attributes));
+            sb_push_str(&sb, c_type);
+            ret: string = sb_to_string(&sb);
+            sb_free(&sb);
+            return ret;
+        },
+        Type_Pointer => {
+            inner: *Type = t.inner;
+            c_type: string = get_c_type(inner[0]);
+            sb: String_Builder;
+            sb_push_str(&sb, attributes_to_string(t.attributes));
+            sb_push_str(&sb, c_type);
+            sb_push_str(&sb, "*");
+            // memory allocated here without freeing
+            // not like theres other parts of the code that doesn't
+            // do this lol. problem for later;
+            ret: string = sb_to_string(&sb);
+            sb_free(&sb);
+            return ret;
+        },
+        Type_Proc => {
+            sb: String_Builder;
+            sb_push_str(&sb, attributes_to_string(t.attributes));
+            if t.return_type == 0 {
+                sb_push_str(&sb, "void");
+            } else {
+                c_type: string = get_c_type(t.return_type[0]);
+                sb_push_str(&sb, c_type);
+            }
+            ret: string = sb_to_string(&sb);
+            sb_free(&sb);
+            return ret;
+        },
+        Type_Array => {
+            array_type: string = get_c_type(t.array_type[0]);
+            sb: String_Builder;
+            sb_push_str(&sb, attributes_to_string(t.attributes));
+            sb_push_str(&sb, array_type);
+            ret: string = sb_to_string(&sb);
+            sb_free(&sb);
+            return ret;
+        },
+        Type_Dynamic_Array => {
+            array_type: string = get_c_type(t.array_type[0]);
+            sb: String_Builder;
+            sb_push_str(&sb, attributes_to_string(t.attributes));
+            sb_push_str(&sb, array_type);
+            sb_push(&sb, '*');
+            ret: string = sb_to_string(&sb);
+            sb_free(&sb);
+            return ret;
+        },
+        Type_Choice => {
+            todo("get_c_type (Type_Choice)", #FILE, #LINE);
+        },
+        Type_Custom_Decl => {
+            todo("get_c_type (Type_Custom_Decl)", #FILE, #LINE);
+        },
+        Type_Custom => {
+            name: *Token = t.name;
+            sb: String_Builder;
+            sb_push_str(&sb, attributes_to_string(t.attributes));
+            sb_push_str(&sb, name.tok);
+            ret: string = sb_to_string(&sb);
+            sb_free(&sb);
+            return ret;
+        },
+        Type_Unknown => {
+            assert(t.resolved, "an unresolved Type_Unknown reached get_c_type", #FILE, #LINE);
+            return get_c_type(t.type_[0]);
+        }
+    } 
 }
 
 ast_start: proc(tokens: [+]Token) -> Ast {

@@ -20,6 +20,13 @@ Error: type struct {
     err: string,
 }
 
+// not accurate name but anyway I just want a smaller subset of types
+// where you can't drill down further
+Concrete_Type: type choice {
+    Type_Builtin,
+    Type_Custom,
+}
+
 unknown_type_name_error: proc(name: *Token) {
     sb: String_Builder;
     name_str: string = name.tok;
@@ -372,15 +379,237 @@ construct_type_custom: proc(name: *Token) -> *Type {
     return ret;
 }
 
-handle_generic_procs: proc(s: *State, proc_type: *Type) -> bool {
-    printf("Handle generics\n".ptr);
-    // TODO: also will need to append a bunch of Proc_Header_Nodes for the generic procs
-    match pt := proc_type {
+// very stupid but necessary for the time being
+array_get: proc(type_size: i32, arr: void_ptr, index: i32) -> void_ptr {
+    assert(arr != 0, "Cannot provide a null array to array_get", #FILE, #LINE);
+    if  index >= array_size(arr) || index < 0 {
+        panic("invalid index for array_get", #FILE, #LINE);
+    }
+
+    return arr + (index * type_size);
+}
+
+// deep_copy_type: returns a freshly-allocated Type with the same structure,
+// following inner pointers and allocating fresh [+] arrays where needed.
+// For variants we never recurse into during generic substitution
+// (Type_Builtin, Type_Custom, Type_Choice, Type_Custom_Decl, Type_Unknown),
+// a single calloc + memcpy is enough because replace_underlying_type
+// overwrites the whole Type in place
+deep_copy_type: proc(t: *Type) -> *Type {
+    ret: *Type = calloc(1, sizeof(Type));
+    memcpy(ret, t, sizeof(Type));
+    match tt := t {
+        Type_Builtin => {},
+        Type_Pointer => {
+            p: Type_Pointer = ret._1;
+            p.inner = deep_copy_type(tt.inner);
+            ret._1 = p;
+        },
+        Type_Proc => {
+            new_args: [+]Variable_Decl_Node = array_new(Variable_Decl_Node);
+            for i: i32 = 0; i < array_size(tt.args); i = i + 1 {
+                tmp: Variable_Decl_Node = deep_copy_var_decl(&tt.args[i]);
+                array_append(new_args, tmp);
+            }
+            p: Type_Proc = ret._2;
+            p.args                 = new_args;
+            p.default_vals         = tt.default_vals;
+            p.attributes           = tt.attributes;
+            p.generic_type_symbols = tt.generic_type_symbols;
+            p.name                 = tt.name;
+            p.new_name             = 0;
+            p.is_generic           = false;
+            if tt.return_type != 0 {
+                p.return_type = deep_copy_type(tt.return_type);
+            } else {
+                p.return_type = 0;
+            }
+            if tt.block != 0 {
+                p.block = deep_copy_block(tt.block);
+            } else {
+                p.block = 0;
+            }
+            ret._2 = p;
+        },
+        Type_Array => {
+            a: Type_Array = ret._3;
+            a.array_type = deep_copy_type(tt.array_type);
+            ret._3 = a;
+        },
+        Type_Dynamic_Array => {
+            a: Type_Dynamic_Array = ret._4;
+            a.array_type = deep_copy_type(tt.array_type);
+            ret._4 = a;
+        },
+        Type_Choice          => {},
+        Type_Custom_Decl     => {},
+        Type_Custom          => {},
+        Type_Unknown         => {},
+    }
+    return ret;
+}
+
+// returns by value so it can be array_append'd into a fresh args array
+deep_copy_var_decl: proc(v: *Variable_Decl_Node) -> Variable_Decl_Node {
+    new_type: *Type = deep_copy_type(&v.var_type);
+    ret: Variable_Decl_Node = Variable_Decl_Node{ v.symbol, v.rhs, new_type[0], v.is_arg };
+    return ret;
+}
+
+// copies the Block_Node struct (scope + statements handle), then allocates a
+// fresh statements array and shallow-copies each Statement. Statements hold
+// pointers to Expression trees which we never mutate in place during SA or
+// codegen, so sharing the expression subtrees is fine for now.
+deep_copy_block: proc(b: *Block_Node) -> *Block_Node {
+    ret: *Block_Node = calloc(1, sizeof(Block_Node));
+    ret.scope = b.scope;
+    ret.statements = array_new(Statement);
+    for i: i32 = 0; i < array_size(b.statements); i = i + 1 {
+        array_append(ret.statements, b.statements[i]);
+    }
+    return ret;
+}
+
+// derives the mangled name for a monomorphized generic proc instance based on
+// the concrete types of the call site arguments
+derive_generic_proc_name: proc(
+    s: *State,
+    base_name: string,
+    args: [+]Variable_Decl_Node,
+    generic_type_symbols: [+]*Token,
+    call: *Call_Node
+) -> string {
+    sb: String_Builder;
+    sb_push_str(&sb, base_name);
+    for i: i32 = 0; i < array_size(args); i = i + 1 {
+        arg: *Variable_Decl_Node = &args[i];
+        arg_type: *Type = &arg.var_type;
+        for j: i32 = 0; j < array_size(generic_type_symbols); j = j + 1 {
+            type_symbol: *Token = generic_type_symbols[j];
+            type_symbol_str: string = type_symbol.tok;
+            ct: *Concrete_Type = find_underlying_type(arg_type);
+            at_name: *Token;
+            at_name_str: string;
+            match t := ct {
+                Type_Builtin => { todo("", #FILE, #LINE); },
+                Type_Custom => {
+                    at_name = t.name;
+                    at_name_str = at_name.tok;
+                }
+            }
+            if strcmp(at_name_str, type_symbol_str) {
+                expr: *Expression = array_get(sizeof(Expression), call.args, i);
+                expr_type: *Type = match_expression(s, expr);
+                type_str: string = get_c_type(expr_type[0]);
+                sb_push(&sb, '_');
+                sb_push_str(&sb, type_symbol_str);
+                sb_push(&sb, '_');
+                sb_push_str(&sb, type_str);
+            }
+        }
+    }
+    ret: string = sb_to_string(&sb);
+    sb_free(&sb);
+    return ret;
+}
+
+substitute_generic_arg_types: proc(
+    s: *State,
+    args: [+]Variable_Decl_Node,
+    generic_type_symbols: [+]*Token,
+    call: *Call_Node
+) {
+    for i: i32 = 0; i < array_size(args); i = i + 1 {
+        arg: *Variable_Decl_Node = &args[i];
+        arg_type: *Type = &arg.var_type;
+        for j: i32 = 0; j < array_size(generic_type_symbols); j = j + 1 {
+            type_symbol: *Token = generic_type_symbols[j];
+            type_symbol_str: string = type_symbol.tok;
+            ct: *Concrete_Type = find_underlying_type(arg_type);
+            at_name: *Token;
+            at_name_str: string;
+            match t := ct {
+                Type_Builtin => { todo("", #FILE, #LINE); },
+                Type_Custom => {
+                    at_name = t.name;
+                    at_name_str = at_name.tok;
+                }
+            }
+            if strcmp(at_name_str, type_symbol_str) {
+                expr: *Expression = array_get(sizeof(Expression), call.args, i);
+                expr_type: *Type = match_expression(s, expr);
+                replace_underlying_type(arg_type, expr_type);
+            }
+        }
+    }
+}
+
+// this is for adding the typed procs for generics
+create_new_typed_proc: proc(
+    s: *State, 
+    proc_decl: *Variable_Decl_Node, 
+    proc_type: *Type_Proc, 
+    call: *Call_Node
+) -> *Variable_Decl_Node {
+    ast: *Ast = s.ast;
+    assert(proc_type.is_generic, "Can only supply generic functions here", #FILE, #LINE);
+    proc_decl_type: *Type = &proc_decl.var_type;
+    new_proc_decl: *Variable_Decl_Node = calloc(1, sizeof(Variable_Decl_Node));
+    memcpy(new_proc_decl, proc_decl, sizeof(Variable_Decl_Node));
+    new_proc_decl_type: *Type = &new_proc_decl.var_type;
+    generic_type_symbols: [+]*Token;
+    new_proc_type: *Type_Proc = 0;
+    // we need to just copy the shit first
+    match pt := proc_decl_type {
         Type_Pointer => { unreachable("", #FILE, #LINE); },
         Type_Builtin => { unreachable("", #FILE, #LINE); },
         Type_Proc => { 
-            if pt.is_generic {
-                todo("generic procs in sa", #FILE, #LINE);
+            match new_pt := new_proc_decl_type {
+                Type_Pointer => { unreachable("", #FILE, #LINE); },
+                Type_Builtin => { unreachable("", #FILE, #LINE); },
+                Type_Proc => { 
+                    new_pt.is_generic = false;
+                    generic_type_symbols = pt.generic_type_symbols; // shared, read-only
+
+                    // fresh args array, each arg owns its var_type (incl. inner *Type)
+                    new_pt.args = array_new(Variable_Decl_Node);
+                    for i: i32 = 0; i < array_size(pt.args); i = i + 1 {
+                        tmp: Variable_Decl_Node = deep_copy_var_decl(&pt.args[i]);
+                        array_append(new_pt.args, tmp);
+                    }
+
+                    // fresh return type (deep, so generic symbols inside it can be substituted)
+                    if pt.return_type != 0 {
+                        new_pt.return_type = deep_copy_type(pt.return_type);
+                    } else {
+                        new_pt.return_type = 0;
+                    }
+
+                    // fresh block with its own statements buffer
+                    if pt.block != 0 {
+                        new_pt.block = deep_copy_block(pt.block);
+                    } else {
+                        new_pt.block = 0;
+                    }
+
+                    // fresh name token; caller will overwrite .tok with the mangled string
+                    new_pt.new_name = calloc(1, sizeof(Token));
+                    memcpy(new_pt.new_name, pt.name, sizeof(Token));
+
+                    // shared, never mutated during instantiation — flagged as known alias
+                    new_pt.attributes   = pt.attributes;
+                    new_pt.default_vals = pt.default_vals;
+                    new_pt.name         = pt.name;
+
+                    new_proc_type = new_pt;
+
+                },
+                Type_Array => { unreachable("", #FILE, #LINE); },
+                Type_Dynamic_Array => { unreachable("", #FILE, #LINE); },
+                Type_Choice => { unreachable("", #FILE, #LINE); },
+                Type_Custom_Decl => { unreachable("", #FILE, #LINE); },
+                Type_Custom => { unreachable("", #FILE, #LINE); },
+                Type_Unknown => { unreachable("", #FILE, #LINE); },
             }
         },
         Type_Array => { unreachable("", #FILE, #LINE); },
@@ -390,7 +619,143 @@ handle_generic_procs: proc(s: *State, proc_type: *Type) -> bool {
         Type_Custom => { unreachable("", #FILE, #LINE); },
         Type_Unknown => { unreachable("", #FILE, #LINE); },
     }
-    return true;
+
+    // TODO: handle cases with default values
+    assert(array_size(new_proc_type.default_vals) == 0, 
+        "TODO: Need to sort out generics when the proc decl has default values", 
+        #FILE, 
+        #LINE);
+    assert(new_proc_type != 0, "", #FILE, #LINE);
+    
+    new_name: *Token = new_proc_type.new_name;
+    new_name.tok = derive_generic_proc_name(s, new_name.tok, new_proc_type.args, generic_type_symbols, call);
+    substitute_generic_arg_types(s, new_proc_type.args, generic_type_symbols, call);
+    new_proc_type.new_name = new_name;
+    new_proc_decl.symbol = new_name;
+    tmp: *Token = new_name.tok;
+    printf("generic_proc: %s\n".ptr, tmp.ptr);
+
+    todo("handle generic types", #FILE, #LINE);
+
+    // declare new header for this proc
+    // TODO: change the name
+    new_proc_header: Proc_Header_Node = Proc_Header_Node{ new_proc_decl.symbol, new_proc_type.args, new_proc_type.return_type, new_proc_type.attributes };
+    array_append(ast.procs, new_proc_header);
+}
+
+// kind of a dumb arg name but anyway
+find_underlying_type: proc(big_type: *Type) -> *Concrete_Type {
+    match t := big_type {
+        Type_Pointer => { 
+            ret: *Concrete_Type  = find_underlying_type(t.inner); 
+            return ret;
+        },
+        Type_Builtin => { 
+            ret: *Concrete_Type = calloc(1, sizeof(Concrete_Type));
+            val: Type_Builtin = t[0];
+            ret_tmp: Concrete_Type  = Concrete_Type{ val }; 
+            memcpy(ret, &ret_tmp, sizeof(Concrete_Type));
+            return ret;
+        },
+        Type_Proc => {},
+        Type_Array => { 
+            ret: *Concrete_Type  = find_underlying_type(t.array_type); 
+            return ret;
+        },
+        Type_Dynamic_Array => { 
+            ret: *Concrete_Type  = find_underlying_type(t.array_type); 
+            return ret;
+        },
+        Type_Choice => { unreachable("", #FILE, #LINE); },
+        Type_Custom_Decl => { unreachable("", #FILE, #LINE); },
+        Type_Custom => { 
+            ret: *Concrete_Type = calloc(1, sizeof(Concrete_Type));
+            val: Type_Custom = t[0];
+            ret_tmp: Concrete_Type = Concrete_Type{ val }; 
+            memcpy(ret, &ret_tmp, sizeof(Concrete_Type));
+            return ret;
+        },
+        Type_Unknown => { unreachable("", #FILE, #LINE); },
+    }
+}
+
+// replace t1 with t2
+replace_underlying_type: proc(t1: *Type, t2: *Type) {
+    both_dyn_array: bool = false;
+    t2_dyn_arry_inner: *Type;
+    // NOTE: this is just for dynamic arrays
+    match t := t2 {
+        Type_Pointer => {},
+        Type_Builtin => {},
+        Type_Proc => {},
+        Type_Array => {},
+        Type_Dynamic_Array => { 
+            both_dyn_array = true;
+            t2_dyn_arry_inner = t.array_type;
+        },
+        Type_Choice => { unreachable("", #FILE, #LINE); },
+        Type_Custom_Decl => { unreachable("", #FILE, #LINE); },
+        Type_Custom => {},
+        Type_Unknown => { unreachable("", #FILE, #LINE); },
+    }
+
+    match t := t1 {
+        Type_Pointer => { 
+            replace_underlying_type(t.inner, t2); 
+        },
+        Type_Builtin => { 
+            // TODO: not sure if memcpy works, delete comment if yes
+            memcpy(t1, t2, sizeof(Type));
+        },
+        Type_Proc => {},
+        Type_Array => { 
+            replace_underlying_type(t.array_type, t2); 
+        },
+        Type_Dynamic_Array => { 
+            if both_dyn_array {
+                replace_underlying_type(t.array_type, t2_dyn_arry_inner); 
+            } else {
+                replace_underlying_type(t.array_type, t2); 
+            }
+        },
+        Type_Choice => { unreachable("", #FILE, #LINE); },
+        Type_Custom_Decl => { unreachable("", #FILE, #LINE); },
+        Type_Custom => { 
+            // TODO: not sure if memcpy works, delete comment if yes
+            memcpy(t1, t2, sizeof(Type));
+        },
+        Type_Unknown => { unreachable("", #FILE, #LINE); },
+    }
+}
+
+handle_generic_procs: proc(s: *State, proc_decl: *Variable_Decl_Node, call: *Call_Node) -> bool {
+    // TODO: also will need to append a bunch of Proc_Header_Nodes for the generic procs
+    // TODO: might need to return proc return type(?)
+    proc_type: *Type = &proc_decl.var_type;
+    ast: *Ast = s.ast;
+    scopes: [+]Scope = ast.scopes;
+    procs: [+]Proc_Header_Node = ast.procs;
+
+    match pt := proc_type {
+        Type_Pointer => { unreachable("", #FILE, #LINE); },
+        Type_Builtin => { unreachable("", #FILE, #LINE); },
+        Type_Proc => { 
+            if pt.is_generic {
+                // create new generic types
+                // TODO: handle return value
+                create_new_typed_proc(s, proc_decl, pt, call);
+                todo("generic procs in sa", #FILE, #LINE);
+            }
+            return pt.is_generic;
+        },
+        Type_Array => { unreachable("", #FILE, #LINE); },
+        Type_Dynamic_Array => { unreachable("", #FILE, #LINE); },
+        Type_Choice => { unreachable("", #FILE, #LINE); },
+        Type_Custom_Decl => { unreachable("", #FILE, #LINE); },
+        Type_Custom => { unreachable("", #FILE, #LINE); },
+        Type_Unknown => { unreachable("", #FILE, #LINE); },
+    }
+    unreachable("Should not be called with non Proc types", #FILE, #LINE);
 }
 
 match_expression: proc(s: *State, _expr: *Expression) -> *Type {
@@ -454,7 +819,10 @@ match_expression: proc(s: *State, _expr: *Expression) -> *Type {
                 printf("%s\n".ptr, name.ptr);
                 panic("Could not find proc (lookup_name)\n", #FILE, #LINE);
             }
-            is_generic: bool = handle_generic_procs(s, &var_decl.var_type);
+            is_generic: bool = handle_generic_procs(s, var_decl, e);
+            if is_generic {
+                // todo("handle the generic call", #FILE, #LINE);
+            }
             ret_type: *Type = get_proc_return_type(var_decl);
 
             // TODO: check if the default values are at the end because skipping is not allowed
