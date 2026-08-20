@@ -282,7 +282,8 @@ Proc_Header_Node: type struct {
 	// block: Block_Node,
 	args: [+]Variable_Decl_Node,
 	return_type: *Type,
-	attributes: [+]Attribute
+	attributes: [+]Attribute,
+    is_generic: bool
 }
 
 Decl_Node: type choice {
@@ -377,7 +378,7 @@ ast_match: proc(ast: *Ast, tt: u8, file: string, line: i32) {
         if DEBUG_MODE {
             printf("DEBUG: %s:%d\n".ptr, file.ptr, line);
         }
-		compile_error(current_token, msg);
+		compile_error(current_token, msg, #FILE, #LINE);
 	}
 }
 
@@ -547,7 +548,7 @@ extract_attributes: proc(ast: *Ast) -> [+]Attribute {
                 tmp.kind = ATTRIBUTE_CONST;
                 array_append(ret, tmp);
             } else {
-                compile_error(current_token, "Attribute is not recognized");
+                compile_error(current_token, "Attribute is not recognized", #FILE, #LINE);
             }
             advance(ast);
         } else {
@@ -610,7 +611,7 @@ extract_type: proc(ast: *Ast) -> Type {
                 current_token = get_current_token(ast);
                 if current_token.tt == TK_CLOSE_SQUARE && start {
                     // cannot have empty [] for generics
-                    compile_error(current_token, "No symbols present where generic type symbols were expected");
+                    compile_error(current_token, "No symbols present where generic type symbols were expected", #FILE, #LINE);
                 }
                 ast_match(ast, TK_WORD, #FILE, #LINE);
                 array_append(generic_type_symbols, current_token);
@@ -623,7 +624,7 @@ extract_type: proc(ast: *Ast) -> Type {
                     advance(ast);
                     break;
                 } else {
-                    compile_error(current_token, "Expected a ',' or a ']'");
+                    compile_error(current_token, "Expected a ',' or a ']'", #FILE, #LINE);
                 }
             }
         } 
@@ -633,7 +634,7 @@ extract_type: proc(ast: *Ast) -> Type {
             advance(ast);
             current_token = get_current_token(ast);
         } else {
-            compile_error(current_token, "kelrkr;qr");
+            compile_error(current_token, "kelrkr;qr", #FILE, #LINE);
         }
 		// ast_match(ast, TK_OPEN_PAREN, #FILE, #LINE);
 		attributes: [+]Attribute; //TODO: need to populate as well
@@ -1118,7 +1119,7 @@ parse_primary: proc(ast: *Ast, scope: u32, in_if: bool) -> Expression {
         ret: Expression = Expression{ array_lit };
         return ret;
     } else {
-        compile_error(current_token, "(Parse Primary) Unexpected Token");
+        compile_error(current_token, "(Parse Primary) Unexpected Token", #FILE, #LINE);
     }
 }
 
@@ -1610,7 +1611,8 @@ create_statement: proc(ast: *Ast, scope: u32) -> *Statement {
                         name, 
                         type_.args, 
                         type_.return_type,
-                        type_.attributes 
+                        type_.attributes,
+                        type_.is_generic
                     };
                     array_append(ast.procs, proc_header);
                     rhs_check = false;
@@ -1824,7 +1826,7 @@ create_statement: proc(ast: *Ast, scope: u32) -> *Statement {
                 if current_token.tt == TK_COMMA {
                     advance(ast);
                 } else if current_token.tt == TK_WORD {
-                    compile_error(save, "Expected a comma here");
+                    compile_error(save, "Expected a comma here", #FILE, #LINE);
                 }
             }
         } else {
@@ -2321,7 +2323,7 @@ expand_includes: proc(tokens: [+]Token, base_filename: string) -> [+]Token {
 }
 
 // NOTE: this doesn't get used in AST but I want it to use it in static_analysis and codegen
-get_c_type: proc(type__: Type) -> string {
+get_c_type: proc(type__: Type, safe: bool) -> string {
     type_: Type = type__; // NOTE/TODO: this is only here cus of a bug
     // NOTE: attributes are folded into the returned type string here
     //       (`@const *u8` becomes `const unsigned char*`, `@extern proc`
@@ -2351,7 +2353,11 @@ get_c_type: proc(type__: Type) -> string {
             } else if t.kind == TYPE_STRING {
                 c_type = "string";
             } else if t.kind == TYPE_VOID_PTR {
-                c_type = "void*";
+                if safe {
+                    c_type = "void_ptr_";
+                } else {
+                    c_type = "void*";
+                }
             } else {
                 printf("UNKNOWN TYPE %d\n".ptr, t.kind);
                 assert(false, "Unhandled TYPE", #FILE, #LINE);
@@ -2365,11 +2371,15 @@ get_c_type: proc(type__: Type) -> string {
         },
         Type_Pointer => {
             inner: *Type = t.inner;
-            c_type: string = get_c_type(inner[0]);
+            c_type: string = get_c_type(inner[0], safe);
             sb: String_Builder;
             sb_push_str(&sb, attributes_to_string(t.attributes));
             sb_push_str(&sb, c_type);
-            sb_push_str(&sb, "*");
+            if safe {
+                sb_push_str(&sb, "_ptr_");
+            } else {
+                sb_push_str(&sb, "*");
+            }
             // memory allocated here without freeing
             // not like theres other parts of the code that doesn't
             // do this lol. problem for later;
@@ -2383,7 +2393,7 @@ get_c_type: proc(type__: Type) -> string {
             if t.return_type == 0 {
                 sb_push_str(&sb, "void");
             } else {
-                c_type: string = get_c_type(t.return_type[0]);
+                c_type: string = get_c_type(t.return_type[0], safe);
                 sb_push_str(&sb, c_type);
             }
             ret: string = sb_to_string(&sb);
@@ -2391,7 +2401,7 @@ get_c_type: proc(type__: Type) -> string {
             return ret;
         },
         Type_Array => {
-            array_type: string = get_c_type(t.array_type[0]);
+            array_type: string = get_c_type(t.array_type[0], safe);
             sb: String_Builder;
             sb_push_str(&sb, attributes_to_string(t.attributes));
             sb_push_str(&sb, array_type);
@@ -2400,11 +2410,15 @@ get_c_type: proc(type__: Type) -> string {
             return ret;
         },
         Type_Dynamic_Array => {
-            array_type: string = get_c_type(t.array_type[0]);
+            array_type: string = get_c_type(t.array_type[0], safe);
             sb: String_Builder;
             sb_push_str(&sb, attributes_to_string(t.attributes));
             sb_push_str(&sb, array_type);
-            sb_push(&sb, '*');
+            if safe {
+                sb_push_str(&sb, "_darr_");
+            } else {
+                sb_push(&sb, '*');
+            }
             ret: string = sb_to_string(&sb);
             sb_free(&sb);
             return ret;
@@ -2426,7 +2440,7 @@ get_c_type: proc(type__: Type) -> string {
         },
         Type_Unknown => {
             assert(t.resolved, "an unresolved Type_Unknown reached get_c_type", #FILE, #LINE);
-            return get_c_type(t.type_[0]);
+            return get_c_type(t.type_[0], safe);
         }
     } 
 }

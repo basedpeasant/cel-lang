@@ -34,7 +34,7 @@ unknown_type_name_error: proc(name: *Token) {
     sb_push_str(&sb, name_str);
     sb_push_str(&sb, "'");
     msg: string = sb_to_string(&sb);
-    compile_error(name, msg);
+    compile_error(name, msg, #FILE, #LINE);
 }
 
 create_type_builtin: proc(kind: u8) -> *Type {
@@ -500,7 +500,7 @@ derive_generic_proc_name: proc(
             if strcmp(at_name_str, type_symbol_str) {
                 expr: *Expression = array_get(sizeof(Expression), call.args, i);
                 expr_type: *Type = match_expression(s, expr);
-                type_str: string = get_c_type(expr_type[0]);
+                type_str: string = get_c_type(expr_type[0], true);
                 sb_push(&sb, '_');
                 sb_push_str(&sb, type_symbol_str);
                 sb_push(&sb, '_');
@@ -544,6 +544,43 @@ substitute_generic_arg_types: proc(
     }
 }
 
+substitute_generic_var_types: proc(
+    s: *State,
+    var: *Variable_Decl_Node,
+    type_symbol: *Token,
+    call: *Call_Node,
+    call_index: i32
+) {
+    var_type: *Type = &var.var_type;
+    type_symbol_str: string = type_symbol.tok;
+    ct: *Concrete_Type = find_underlying_type(var_type);
+    at_name: *Token;
+    at_name_str: string;
+    match t := ct {
+        Type_Builtin => { todo("", #FILE, #LINE); },
+        Type_Custom => {
+            at_name = t.name;
+            at_name_str = at_name.tok;
+        }
+    }
+    if strcmp(at_name_str, type_symbol_str) {
+        expr: *Expression = array_get(sizeof(Expression), call.args, call_index);
+        expr_type: *Type = match_expression(s, expr);
+        ct: *Concrete_Type = find_underlying_type(expr_type);
+        match c := ct {
+            Type_Builtin => {
+                concrete: *Type = create_type_builtin(c.kind);
+                replace_underlying_type(var_type, concrete);
+            },
+            Type_Custom => {
+                concrete: *Type = construct_type_custom(c.name);
+                replace_underlying_type(var_type, concrete);
+            }
+        }
+
+    }
+}
+
 // this is for adding the typed procs for generics
 create_new_typed_proc: proc(
     s: *State, 
@@ -551,6 +588,7 @@ create_new_typed_proc: proc(
     proc_type: *Type_Proc, 
     call: *Call_Node
 ) -> *string {
+    // TODO: we need to check if the monomorphized proc already exists as well so we don't make duplicates
     ast: *Ast = s.ast;
     assert(proc_type.is_generic, "Can only supply generic functions here", #FILE, #LINE);
     proc_decl_type: *Type = &proc_decl.var_type;
@@ -627,6 +665,7 @@ create_new_typed_proc: proc(
         #LINE);
     assert(new_proc_type != 0, "", #FILE, #LINE);
     
+    new_proc_type.is_generic = false;
     new_name: *Token = new_proc_type.new_name;
     new_name.tok = derive_generic_proc_name(s, new_name.tok, new_proc_type.args, generic_type_symbols, call);
     substitute_generic_arg_types(s, new_proc_type.args, generic_type_symbols, call);
@@ -640,8 +679,46 @@ create_new_typed_proc: proc(
 
     // declare new header for this proc
     // TODO: change the name
-    new_proc_header: Proc_Header_Node = Proc_Header_Node{ new_proc_decl.symbol, new_proc_type.args, new_proc_type.return_type, new_proc_type.attributes };
+    new_proc_header: Proc_Header_Node = Proc_Header_Node{ new_proc_decl.symbol, new_proc_type.args, new_proc_type.return_type, new_proc_type.attributes, false };
     array_append(ast.procs, new_proc_header);
+
+    root_block: *Block_Node = &ast.root_block;
+    statements: [+]Statement = root_block.statements;
+
+    // TODO: check return type needs to be replaced with new type as well
+    new_block: *Block_Node = new_proc_type.block;
+    new_block_statements: [+]Statement = new_block.statements;
+    for i: i32 = 0; i < array_size(new_block_statements); i = i + 1 {
+        for j: i32 = 0; j < array_size(generic_type_symbols); j = j + 1 {
+            type_symbol: *Token = generic_type_symbols[j];
+            stmt: *Statement = &new_block_statements[i];
+            match st := stmt {
+                Expression_Statement => {},
+                Decl_Node => {
+                    s_: *Decl_Node = st; // This is bugged so have to do it like this
+                    match decl := s_ {
+                        Variable_Decl_Node => {
+                            // TODO: the call_index means this only works with one generic
+                            //       type symbol, this needs to be changed later for support
+                            //       for multiple symbols
+                            substitute_generic_var_types(s, decl, type_symbol, call, 0);
+                        }
+                    }
+                },
+                Return_Node => {},
+                Continue_Node => {},
+                Break_Node => {},
+                Reserve_Statement => { todo("Reserve_Statement", #FILE, #LINE); }
+            }
+        }
+    }
+    
+    // TODO/NOTE: this makes me think that new_proc_decl doesn't have to be malloc'd
+    new_proc_var: Variable_Decl_Node = new_proc_decl[0];
+    decl: Decl_Node = Decl_Node{ new_proc_var };
+    new_stmt: Statement = Statement{ decl };
+    array_append(statements, new_stmt);
+
     return ret; 
 }
 
@@ -840,14 +917,14 @@ match_expression: proc(s: *State, _expr: *Expression) -> *Type {
             if provided_args > 0 {
                 // need to provide default args
                 if (default_vals_len + call_args_len) < proc_args_len {
-                    compile_error(name_tok, "Too few arguments provided in this function call");
+                    compile_error(name_tok, "Too few arguments provided in this function call", #FILE, #LINE);
                 } else {
                     for i: i32 = 0; i < default_vals_len; i = i + 1 {
                         array_append(e.args, default_vals[i]);
                     }
                 }
             } else if provided_args < 0 {
-                compile_error(name_tok, "Too many arguments provided in this function call");
+                compile_error(name_tok, "Too many arguments provided in this function call", #FILE, #LINE);
             }
 
             // need to insert the default values if required
@@ -964,7 +1041,7 @@ sa_walk_var_decl: proc(s: *State, v: *Variable_Decl_Node) {
         Type_Pointer => {},
         Type_Proc => {
             // TODO: I guess need to check default values here?
-            if t.block != 0 {
+            if t.block != 0 && !(t.is_generic) {
                 sa_walk_block(s, t.block);
             }
         },
@@ -1259,7 +1336,7 @@ sa_add_statement_to_match_blocks: proc(ast: *Ast, m: *Match_Node, choice_type: *
         // TODO: do we even need this check? It'll error earlier if the arm type doesn't exist
         exists: bool = sa_check_custom_type_exists(ast, field.name);
         if !exists {
-            compile_error(field.name, "Undefined Type in Match arm");
+            compile_error(field.name, "Undefined Type in Match arm", #FILE, #LINE);
         }
         // -----
         var_type_custom: Type_Custom = Type_Custom{ field.name, 0 };
@@ -1349,7 +1426,7 @@ sa_walk_expression_statement_with_block: proc(s: *State, es: *Expression_Stateme
             // TODO: this needs to be changed once we introduce the "_" in match blocks
             if array_size(eswb.fields) != array_size(choice_type.fields) {
                 // TODO: better error message probably
-                compile_error(eswb.token, "Match arms are not exhaustive, needs to cover all arms of the underlying Choice Type");
+                compile_error(eswb.token, "Match arms are not exhaustive, needs to cover all arms of the underlying Choice Type", #FILE, #LINE);
             }
             for i: i32 = 0; i < array_size(eswb.fields); i = i + 1 {
                 field: *Field = &eswb.fields[i];
@@ -1365,7 +1442,7 @@ sa_walk_expression_statement_with_block: proc(s: *State, es: *Expression_Stateme
                 }
                 // TODO: needs a better error
                 if !found {
-                    compile_error(field_name, "Could not find arm in choice definition");
+                    compile_error(field_name, "Could not find arm in choice definition", #FILE, #LINE);
                 }
             }
 

@@ -105,7 +105,7 @@ generate_types: proc(g: *Generator) {
                 for i: i32 = 0; i < array_size(t.fields); i = i + 1 {
                     output_indentations(g);
                     field: Field = t.fields[i];
-                    c_type: string = get_c_type(field.type_name);
+                    c_type: string = get_c_type(field.type_name, false);
                     field_name: *Token = field.name;
                     sb_push_str(g.output, c_type);
                     sb_push_str(g.output, " _");
@@ -132,7 +132,7 @@ generate_types: proc(g: *Generator) {
                 for i: i32 = 0; i < array_size(t.fields); i = i + 1 {
                     output_indentations(g);
                     field: Field = t.fields[i];
-                    c_type: string = get_c_type(field.type_name);
+                    c_type: string = get_c_type(field.type_name, false);
                     field_name: *Token = field.name;
                     sb_push_str(g.output, c_type);
                     sb_push(g.output, ' ');
@@ -173,6 +173,9 @@ write_start: proc(g: *Generator) {
     // generating the headers
     for i: i32 = 0; i < array_size(g.procs); i = i + 1 {
         procedure: *Proc_Header_Node = &g.procs[i];
+        if procedure.is_generic {
+            continue;
+        }
         procedure_name: *Token = procedure.name;
         if strcmp(procedure_name.tok, "main") {
             // TODO: determine the kind of cel_main (_cel_main() or _cel_main(args: []string))
@@ -187,7 +190,7 @@ write_start: proc(g: *Generator) {
             sb_push_str(g.output, "void ");
         } else {
             return_type: Type = procedure.return_type[0];
-            c_type_str: string = get_c_type(return_type);
+            c_type_str: string = get_c_type(return_type, false);
             sb_push_str(g.output, c_type_str);
             sb_push(g.output, ' ');
         }
@@ -303,9 +306,13 @@ attributes_to_string: proc(attributes: [+]Attribute) -> string {
 
 walk_proc: proc(g: *Generator, proc_: *Type_Proc) {
     name: *Token = proc_.name;
-    if proc_.is_generic {
+    if proc_.is_generic && proc_.new_name == 0 {
         // TODO:
         // todo("Codegen for generic procedures", #FILE, #LINE);
+        return;
+    }
+    if proc_.new_name != 0 {
+        name = proc_.new_name;
     }
     if strcmp(name.tok, "main") {
         sb_push_str(g.output, g.main_declaration);
@@ -314,7 +321,7 @@ walk_proc: proc(g: *Generator, proc_: *Type_Proc) {
         sb_push_str(g.output, attr_string);
         if proc_.return_type != 0 {
             // TODO: using [0] for dereference lol
-            c_type_string: string = get_c_type(proc_.return_type[0]);
+            c_type_string: string = get_c_type(proc_.return_type[0], false);
             sb_push_str(g.output, c_type_string);
             sb_push(g.output, ' ');
         } else {
@@ -543,13 +550,13 @@ walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
 
     match t := var_type {
         Type_Builtin => {
-            c_type_str: string = get_c_type(var_type);
+            c_type_str: string = get_c_type(var_type, false);
             sb_push_str(g.output, c_type_str);
             // don't forget the space
             sb_push(g.output, ' ');
         },
         Type_Pointer => {
-            c_type_str: string = get_c_type(var_type);
+            c_type_str: string = get_c_type(var_type, false);
             sb_push_str(g.output, c_type_str);
             sb_push(g.output, ' ');
         },
@@ -558,14 +565,14 @@ walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
             skip = true;
         },
         Type_Array => {
-            c_type_str: string = get_c_type(var_type);
+            c_type_str: string = get_c_type(var_type, false);
             sb_push_str(g.output, c_type_str);
             sb_push(g.output, ' ');
             is_arr = true;
             size_expr = t.size;
         },
         Type_Dynamic_Array => {
-            c_type_str: string = get_c_type(var_type);
+            c_type_str: string = get_c_type(var_type, false);
             sb_push_str(g.output, c_type_str);
             sb_push(g.output, ' ');
         },
@@ -576,14 +583,14 @@ walk_variable_decl: proc(g: *Generator, variable_decl: *Variable_Decl_Node) {
             unreachable("types should not be in the list of statements in any blocks", #FILE, #LINE);
         },
         Type_Custom => {
-            type_str: string = get_c_type(var_type);
+            type_str: string = get_c_type(var_type, false);
             sb_push_str(g.output, type_str);
             sb_push(g.output, ' ');
             is_type_custom = true;
         },
         Type_Unknown => {
             assert(t.resolved, "an unresolved type of `Type_Unknown` has appeared in codegen", #FILE, #LINE);
-            c_type_str: string = get_c_type(t.type_[0]);
+            c_type_str: string = get_c_type(t.type_[0], false);
             sb_push_str(g.output, c_type_str);
             sb_push(g.output, ' ');
         }

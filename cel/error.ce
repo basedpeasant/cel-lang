@@ -227,7 +227,10 @@ report_error: proc(token: *Token, msg: string) {
 }
 
 // Report a fatal error for a token and stop compilation
-compile_error: proc(token: *Token, msg: string) {
+compile_error: proc(token: *Token, msg: string, file: string, line: i32) {
+    if DEBUG_MODE {
+        printf("%s:%d: compiler_error: %s\n".ptr, file.ptr, line, msg.ptr);
+    }
     token_str: string = token.tok;
     report_error_at(token.filename, token.y, token.x, token_str.length, msg);
     exit(1);

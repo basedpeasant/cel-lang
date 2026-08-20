@@ -1,4 +1,4 @@
-DEBUG_MODE: bool = false;
+DEBUG_MODE: bool = true;
 
 include "core.ce";
 include "tokenize.ce";
