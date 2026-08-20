@@ -641,6 +641,7 @@ fn parse_primary(ast: &mut Ast, scope: usize) -> Expression {
                         't' => {}, // tabs
                         'r' => {}, // carriage return
                         '\'' => {}, // single quote
+                        '0' => {}, // null terminator 
                         _ => panic!("Unsupported escape sequence '{}': {:?}", current_token.tok, current_token),
                     }
                 } else {

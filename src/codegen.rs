@@ -260,7 +260,7 @@ fn handle_member_access(g: &mut Generator, var_decl: VariableDeclNode, bin: &Bin
             Type::Array(_) => todo!("Array"),
             Type::Choice(_, _) => todo!("Choice"),
             Type::Slice(_) => todo!("Slice"),
-            Type::Pointer(_) => todo!("Pointer"),
+            Type::Pointer(_) => todo!("Pointer: {:?}", var_decl),
             _ => todo!()
         };
     }
