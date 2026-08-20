@@ -177,11 +177,13 @@ OP_ADD_ASSIGN: i32 = 33;
 OP_SUB_ASSIGN: i32 = 34;
 OP_DEREF: i32 = 35;
 OP_MOD: i32 = 36;
+OP_CAST: i32 = 37;
 
 Unary_Node: type struct {
     op: i32,
     base: *Expression,
     expr: *Expression,
+    cast_to: *Type // this is only for type casting
 }
 
 Binary_Node: type struct {
@@ -1057,7 +1059,7 @@ parse_primary: proc(ast: *Ast, scope: u32, in_if: bool) -> Expression {
             memcpy(expr_alloc, &expr, sizeof(Expression));
             expr_alloc._tag = get_expr_tag(&expr);
             tmp_str: string = current_token.tok;
-            unary: Unary_Node = Unary_Node{ op, base_alloc, expr_alloc }; 
+            unary: Unary_Node = Unary_Node{ op, base_alloc, expr_alloc, 0 }; 
             ret: Expression = Expression{ unary };
             return ret;
         } else {
@@ -1093,8 +1095,23 @@ parse_primary: proc(ast: *Ast, scope: u32, in_if: bool) -> Expression {
         expr: Expression = parse_primary(ast, scope, in_if);
         memcpy(base_alloc, &expr, sizeof(Expression));
         base_alloc._tag = get_expr_tag(&expr);
-        tmp_str: string = current_token.tok;
-        unary: Unary_Node = Unary_Node{ op, base_alloc, 0 }; 
+        unary: Unary_Node = Unary_Node{ op, base_alloc, 0, 0 }; 
+        ret: Expression = Expression{ unary };
+        return ret;
+    } else if current_token.tt == TK_CAST {
+        // very similar to the other unary parsing
+        base_alloc: *Expression = calloc(1, sizeof(Expression));
+        op: i32 = get_op(current_token);
+        advance(ast);
+        ast_match(ast, TK_OPEN_PAREN, #FILE, #LINE);
+        advance(ast);
+        type_: Type = extract_type(ast);
+        ast_match(ast, TK_CLOSE_PAREN, #FILE, #LINE);
+        advance(ast);
+        expr: Expression = parse_primary(ast, scope, in_if);
+        memcpy(base_alloc, &expr, sizeof(Expression));
+        unary: Unary_Node = Unary_Node{ op, base_alloc, 0, calloc(1, sizeof(Type)) }; 
+        memcpy(unary.cast_to, &type_, sizeof(Type));
         ret: Expression = Expression{ unary };
         return ret;
     } else if current_token.tt == TK_OPEN_SQUARE {
@@ -1239,6 +1256,8 @@ get_op: proc(token: *Token) -> i32 {
         return OP_DEREF;
     } else if token.tt == TK_PERCENT {
         return OP_MOD;
+    } else if token.tt == TK_CAST {
+        return OP_CAST;
     } else {
         str: string = token.tok;
         printf("%s\n".ptr, str.ptr);
@@ -1250,7 +1269,7 @@ get_prec: proc(ast: *Ast, token: *Token) -> i32 {
     // TODO: other ops
     if token.tt == TK_OPEN_SQUARE || token.tt == TK_DOT {
         return 14;
-    } else if token.tt == TK_DEREF || token.tt == TK_AMPERSAND {
+    } else if token.tt == TK_DEREF || token.tt == TK_AMPERSAND || token.tt == TK_CAST {
         return 13;
     } else if token.tt == TK_TILDE {
         return 12;
@@ -1522,6 +1541,8 @@ is_operator: proc(token: *Token) -> bool {
     } else if token.tt == TK_SLASH {
         return true;
     } else if token.tt == TK_STAR {
+        return true;
+    } else if token.tt == TK_CAST {
         return true;
     } else {
         return false;

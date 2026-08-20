@@ -67,6 +67,7 @@ TK_ADD_ASSIGN:    u8 = 56;
 TK_SUB_ASSIGN:    u8 = 57;
 TK_DEREF:         u8 = 58;
 TK_CONTINUE:      u8 = 59;
+TK_CAST:          u8 = 60;
 
 clone_string: proc(str: string) -> string {
 	ptr: *u8;
@@ -178,6 +179,8 @@ get_keyword_tt: proc(str: string) -> u8 {
 		return TK_CHOICE;
     } else if strcmp(str, "continue") {
         return TK_CONTINUE;
+    } else if strcmp(str, "cast") {
+        return TK_CAST;
     } else if strcmp(str, "break") {
         return TK_BREAK;
 	} else {
@@ -689,6 +692,8 @@ get_tt_string_repr: proc(tt: u8) -> string {
         return "TK_DEREF";
     } else if tt == TK_CONTINUE {
         return "TK_CONTINUE";
+    } else if tt == TK_CAST {
+        return "TK_CAST";
     } else if tt == TK_FAT_ARROW {
         return "TK_FAT_ARROW";
 	} else {

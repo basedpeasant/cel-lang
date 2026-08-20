@@ -775,7 +775,10 @@ replace_underlying_type: proc(t1: *Type, t2: *Type) {
         Type_Choice => { unreachable("", #FILE, #LINE); },
         Type_Custom_Decl => { unreachable("", #FILE, #LINE); },
         Type_Custom => {},
-        Type_Unknown => { unreachable("", #FILE, #LINE); },
+        Type_Unknown => { 
+            assert(t.resolved, "type_unknown must already be resolved by this point", #FILE, #LINE);
+            t2 = t.type_;
+        },
     }
 
     match t := t1 {
@@ -947,6 +950,9 @@ match_expression: proc(s: *State, _expr: *Expression) -> *Type {
             if e.op == OP_REFERENCE {
                 inner_type: *Type = match_expression(s, e.base);
                 return create_type_pointer(inner_type);
+            } else if e.op == OP_CAST {
+                // TODO: handle static analysis for when casting occurs
+                // todo("unhandled changing the type of the expression (a.k.a. casting)", #FILE, #LINE);
             }
             return match_expression(s, e.base);
         },
@@ -1367,14 +1373,72 @@ sa_add_statement_to_match_blocks: proc(ast: *Ast, m: *Match_Node, choice_type: *
     }
 }
 
+// needed for a single Statement for static analysis (needed for for-loop inits)
+sa_walk_statement: proc(s: *State, statement_: *Statement) {
+    statement: *Statement = statement_;
+    match st := statement {
+        Expression_Statement => { 
+            stmt: *Expression_Statement = st; 
+            match e := stmt { 
+                Expression => { 
+                    match_expression(s, e);
+                },
+                Expression_Statement_With_Block => { 
+                    sa_walk_expression_statement_with_block(s, e);
+                } 
+            } 
+        },
+        Decl_Node => { 
+            sa_walk_decl(s, st);
+        },
+        Return_Node => {},
+        Continue_Node => {},
+        Break_Node => {},
+        Reserve_Statement => { 
+            panic("Reserve_Statement should not be present in a for init", #FILE, #LINE);
+        } 
+    } 
+}   
+
+sa_walk_if_node: proc(s: *State, if_node: *If_Node) {
+    ast: *Ast = s.ast;
+    if if_node.condition != 0 {
+        match_expression(s, if_node.condition);
+    }
+    save_scope: u32 = ast.current_scope;
+    sa_walk_block(s, &if_node.block);
+    ast.current_scope = save_scope;
+    if if_node.next != 0 {
+        sa_walk_if_node(s, if_node.next);
+    }
+} 
+
 sa_walk_expression_statement_with_block: proc(s: *State, es: *Expression_Statement_With_Block) {
     ast: *Ast = s.ast;
     scopes: [+]Scope = ast.scopes;
     match eswb := es {
-        // TODO:
-        If_Node => {},
-        // TODO:
-        For_Node => {},
+        // // TODO:
+        // If_Node => {},
+        // // TODO:
+        // For_Node => {},
+        If_Node => {
+            sa_walk_if_node(s, eswb);
+        },
+        For_Node => {
+            ast: *Ast = s.ast;
+            if eswb.init != 0 {
+                sa_walk_statement(s, eswb.init);
+            }
+            if eswb.condition != 0 {
+                match_expression(s, eswb.condition);
+            }
+            if eswb.post != 0 {
+                match_expression(s, eswb.post);
+            }
+            save_scope: u32 = ast.current_scope;
+            sa_walk_block(s, &eswb.block);
+            ast.current_scope = save_scope;
+        },
         Match_Node => {
             // What do we need to do?
             // - We must compare each arm with the original choice type

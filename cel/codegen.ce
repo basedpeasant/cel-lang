@@ -494,6 +494,11 @@ walk_expression: proc(g: *Generator, expr_: *Expression) {
                 return;
             } else if e.op == OP_DEREF {
                 sb_push_str(g.output, "*");
+            } else if e.op == OP_CAST {
+                cast_to: string = get_c_type(e.cast_to[0], false);
+                sb_push_str(g.output, "(");
+                sb_push_str(g.output, cast_to);
+                sb_push_str(g.output, ")");
             } else {
                 printf("%d\n".ptr, e.op);
                 panic("not implemented unary operation yet or invalid unary operation", #FILE, #LINE);
