@@ -39,7 +39,11 @@ Type_Custom: type struct {
 Type_Custom_Decl: type struct {
 	name: *Token,
 	fields: [+]Field,
-	attributes: [+]Attribute
+	attributes: [+]Attribute,
+    is_generic: bool,
+    generic_type_symbols: [+]*Token,
+    // for static analysis
+    new_name: *Token
 }
 
 Type_Builtin: type struct {
@@ -709,16 +713,46 @@ extract_type: proc(ast: *Ast) -> Type {
 		// todo("handling for Type_Proc", #FILE, #LINE);
 	} else if current_token.tt == TK_TYPE {
         // definition of a new type struct
+        is_generic: bool = false;
         advance(ast);
         current_token: *Token = get_current_token(ast);
+        new_name: *Token = 0;
+        generic_type_symbols: [+]*Token;
+        start: bool = true;
         if current_token.tt == TK_STRUCT {
             fields: [+]Field = array_new(Field);
             advance(ast);
+            current_token: *Token = get_current_token(ast);
+            current_token = get_current_token(ast);
+            if current_token.tt == TK_OPEN_SQUARE {
+                advance(ast);
+                is_generic = true;
+                for true {
+                    current_token = get_current_token(ast);
+                    if current_token.tt == TK_CLOSE_SQUARE && start {
+                        // cannot have empty [] for generics
+                        compile_error(current_token, "No symbols present where generic type symbols were expected", #FILE, #LINE);
+                    }
+                    ast_match(ast, TK_WORD, #FILE, #LINE);
+                    array_append(generic_type_symbols, current_token);
+                    advance(ast);
+                    current_token = get_current_token(ast);
+                    if current_token.tt == TK_COMMA {
+                        start = false;
+                        advance(ast);
+                    } else if current_token.tt == TK_CLOSE_SQUARE {
+                        advance(ast);
+                        break;
+                    } else {
+                        compile_error(current_token, "Expected a ',' or a ']'", #FILE, #LINE);
+                    }
+                }
+            }
             ast_match(ast, TK_OPEN_CURLY, #FILE, #LINE);
             advance(ast);
             tag: u8 = 0;
             for true {
-                current_token: *Token = get_current_token(ast);
+                current_token = get_current_token(ast);
                 if current_token.tt == TK_CLOSE_CURLY {
                     break;
                 }
@@ -742,7 +776,7 @@ extract_type: proc(ast: *Ast) -> Type {
                 tag = tag + 1;
             }
 			// TODO: Attributes
-            struct_type: Type_Custom_Decl = Type_Custom_Decl{ 0, fields, array_new(Attribute) };
+            struct_type: Type_Custom_Decl = Type_Custom_Decl{ 0, fields, array_new(Attribute), is_generic, generic_type_symbols, new_name };
             ret: Type = Type{ struct_type }; // set the name later after extract_type
             return ret;
         } else if current_token.tt == TK_CHOICE {
@@ -1541,6 +1575,8 @@ is_operator: proc(token: *Token) -> bool {
     } else if token.tt == TK_SLASH {
         return true;
     } else if token.tt == TK_STAR {
+        return true;
+    } else if token.tt == TK_DEREF {
         return true;
     } else if token.tt == TK_CAST {
         return true;
@@ -2432,6 +2468,7 @@ get_c_type: proc(type__: Type, safe: bool) -> string {
         },
         Type_Dynamic_Array => {
             array_type: string = get_c_type(t.array_type[0], safe);
+            printf("Thisis a test: %s:%d\n".ptr, array_type.ptr, safe);
             sb: String_Builder;
             sb_push_str(&sb, attributes_to_string(t.attributes));
             sb_push_str(&sb, array_type);

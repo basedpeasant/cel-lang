@@ -500,11 +500,18 @@ derive_generic_proc_name: proc(
             if strcmp(at_name_str, type_symbol_str) {
                 expr: *Expression = array_get(sizeof(Expression), call.args, i);
                 expr_type: *Type = match_expression(s, expr);
-                type_str: string = get_c_type(expr_type[0], true);
+                sub: *Type = underlying_substitution_type(arg_type, expr_type);
+                type_str: string = get_c_type(sub[0], true);
                 sb_push(&sb, '_');
                 sb_push_str(&sb, type_symbol_str);
                 sb_push(&sb, '_');
                 sb_push_str(&sb, type_str);
+                //
+                // type_str: string = get_c_type(expr_type[0], true);
+                // sb_push(&sb, '_');
+                // sb_push_str(&sb, type_symbol_str);
+                // sb_push(&sb, '_');
+                // sb_push_str(&sb, type_str);
             }
         }
     }
@@ -538,7 +545,9 @@ substitute_generic_arg_types: proc(
             if strcmp(at_name_str, type_symbol_str) {
                 expr: *Expression = array_get(sizeof(Expression), call.args, i);
                 expr_type: *Type = match_expression(s, expr);
-                replace_underlying_type(arg_type, expr_type);
+
+                sub: *Type = underlying_substitution_type(arg_type, expr_type);
+                replace_underlying_type(arg_type, sub);
             }
         }
     }
@@ -578,6 +587,40 @@ substitute_generic_var_types: proc(
             }
         }
 
+    }
+}
+
+unwrap_one: proc(t_outer: *Type) -> *Type {
+    match t := t_outer {
+        Type_Pointer => { return t.inner; },
+        Type_Builtin => { unreachable("", #FILE, #LINE); },
+        Type_Proc => { unreachable("", #FILE, #LINE); },
+        Type_Array => { return t.array_type; },
+        Type_Dynamic_Array => { return t.array_type; },
+        Type_Choice => { unreachable("", #FILE, #LINE); },
+        Type_Custom_Decl => { unreachable("", #FILE, #LINE); },
+        Type_Custom => { unreachable("", #FILE, #LINE); },
+        Type_Unknown => { unreachable("", #FILE, #LINE); },
+    }
+}
+
+underlying_substitution_type: proc(param_type: *Type, arg_type: *Type) -> *Type {
+    match t := param_type {
+        Type_Pointer => { 
+            return underlying_substitution_type(t.inner, unwrap_one(arg_type)); 
+        },
+        Type_Builtin => { return deep_copy_type(arg_type); },
+        Type_Proc => { todo("", #FILE, #LINE); },
+        Type_Array => { 
+            return underlying_substitution_type(t.array_type, unwrap_one(arg_type)); 
+        },
+        Type_Dynamic_Array => { 
+            return underlying_substitution_type(t.array_type, unwrap_one(arg_type)); 
+        },
+        Type_Choice => { unreachable("", #FILE, #LINE); },
+        Type_Custom_Decl => { unreachable("", #FILE, #LINE); },
+        Type_Custom => { return deep_copy_type(arg_type); },
+        Type_Unknown => { unreachable("", #FILE, #LINE); },
     }
 }
 
